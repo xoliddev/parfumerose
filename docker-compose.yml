@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Ma'lumotlar Bazasi Servisi
+  db:
+    image: postgres:15-alpine
+    container_name: hr_bot_postgres
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - "5433:5432" # Bazaga lokal kompyuterdan ulanish uchun
+    restart: always
+
+  # 2. Telegram Bot Servisi
+  bot:
+    build: .
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Tashkent
+      - APP_ENV=docker  # Botga o'zining "docker" muhitida ekanligini aytadi
+    restart: always
+    depends_on:
+      - db      # Bot ishga tushishidan oldin 'db' va 'redis' tayyor bo'lishini kutadi
+      - redis
+    volumes:
+      - ./data:/app/data
+
+  # 3. Redis (FSM uchun xotira) Servisi
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
+# Ma'lumotlarni saqlab qolish uchun "volume"
+volumes:
+  postgres_data:

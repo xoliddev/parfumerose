@@ -1,0 +1,31 @@
+# Dockerfile.api - FastAPI Backend uchun
+# Render.com da Web Service sifatida ishga tushadi
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 1. Python kutubxonalarini o'rnatish
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+
+# 2. FFmpeg o'rnatish (audio convert uchun)
+RUN apt-get update && \
+    apt-get install -y ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+# 3. Loyiha kodlarini nusxalash
+COPY . .
+
+# 4. Static va data papkalarini yaratish
+RUN mkdir -p /app/data /app/web/static
+
+# 5. Entrypoint scriptni nusxalash va ruxsat berish
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
+# 6. Render port=10000 ishlatadi
+EXPOSE 10000
+
+# 7. Entrypoint orqali ishga tushirish (avtomatik migratsiya)
+CMD ["./entrypoint.sh"]

@@ -1,0 +1,76 @@
+# Render.com Blueprint - mojazdevbot
+# Bu fayl Render.com da barcha xizmatlarni avtomatik deploy qilish uchun ishlatiladi
+
+services:
+  # 1. Telegram Bot (Background Worker -> Web Service for Free Tier)
+  # Render Free Tier da 'worker' yo'q, shuning uchun 'web' ishlatamiz.
+  - type: web
+    name: mojazdevbot-telegram
+    runtime: docker
+    plan: free # Bepul plan
+    dockerFilePath: ./Dockerfile.bot
+    dockerContext: . # Docker context ni aniq ko'rsatish
+    envVars:
+      - key: APP_ENV
+        value: render
+      - key: TZ
+        value: Asia/Tashkent
+      - key: BOT_TOKEN
+        value: 8038164850:AAHOJ74awCwPHShor5dBIZhGQXzLMCm-V-8
+      - key: ADMINS
+        value: 7290906386,730841948,498803246
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AZURE_SPEECH_KEY
+        sync: false
+      - key: AZURE_SPEECH_REGION
+        sync: false
+      - key: GEMINI_API_KEYS
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mojazdevbot-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: mojazdevbot-redis
+          type: redis
+          property: connectionString
+
+  # 2. FastAPI Backend (Web Service)
+  - type: web
+    name: mojazdevbot-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.api
+    healthCheckPath: /
+    envVars:
+      - key: APP_ENV
+        value: render
+      - key: TZ
+        value: Asia/Tashkent
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AZURE_SPEECH_KEY
+        sync: false
+      - key: AZURE_SPEECH_REGION
+        sync: false
+      - key: GEMINI_API_KEYS
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mojazdevbot-db
+          property: connectionString
+
+  # 3. Redis (FSM va keshlash uchun)
+  - type: redis
+    name: mojazdevbot-redis
+    plan: starter # $7/oy, Render free redis yo'q
+    maxmemoryPolicy: allkeys-lru
+
+# PostgreSQL Database
+databases:
+  - name: mojazdevbot-db
+    plan: free # Bepul 1GB, 3 oylik
+    databaseName: hr_bot_db
