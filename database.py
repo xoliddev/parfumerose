@@ -238,8 +238,24 @@ async def init_db():
         await conn.execute("INSERT INTO settings(id, rest_day) VALUES (1, NULL) ON CONFLICT (id) DO NOTHING;")
 
         # 10. AI Chat Tables
-        await create_ai_chat_tables()
-        
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                title TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_chat_messages (
+                id SERIAL PRIMARY KEY,
+                session_id INTEGER REFERENCES ai_chat_sessions(id) ON DELETE CASCADE,
+                role VARCHAR(20) NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
         # 11. Job Applications Table
         await create_applications_table()
 
@@ -250,6 +266,7 @@ async def init_db():
     print("🛠️ Asosiy jadvallar tekshirildi va tayyor.")
     # BUXGALTERIYA JADVALLARINI HAM ISHGA TUSHIRAMIZ
     await init_accounting_db()
+
 
 
 # --- BUHGALTERIYA UCHUN YANGI JADVALLAR ---
