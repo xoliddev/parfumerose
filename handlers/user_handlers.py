@@ -120,11 +120,12 @@ def _to_utc(dt_value: datetime.datetime | None) -> datetime.datetime | None:
 
 
 async def clear_old_employee_reply_keyboard(chat_id: int):
+    """Eski klaviaturani tozalash, xatolikni log qilish."""
     try:
         temp = await bot.send_message(chat_id, "\u2063", reply_markup=types.ReplyKeyboardRemove())
         await bot.delete_message(chat_id, temp.message_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug(f"Klaviaturani tozalashda xatolik (chat_id={chat_id}): {e}")
 
 
 async def get_employee_dashboard(user_id: int):
