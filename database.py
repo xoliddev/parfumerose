@@ -1357,7 +1357,7 @@ async def get_order_materials(order_id: int) -> List[dict]:
 
 
 async def add_order_material(order_id: int, material_id: int, quantity: float) -> bool:
-    """Buyurtmaga material qo'shadi va narxni o'zi hisoblaydi."""h
+    """Buyurtmaga material qo'shadi va narxni o'zi hisoblaydi."""
     try:
         async with pool.acquire() as conn:
             unit_cost = await conn.fetchval("SELECT unit_cost FROM materials WHERE id = $1", material_id)
