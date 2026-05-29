@@ -11,7 +11,7 @@ import html
 from ai_helpers import process_employee_request
 from employee_menu import get_employee_main_menu
 from loader import dp, bot
-from config import ADMINS, SUPERADMINS, ALLOWED_LAT, ALLOWED_LON, ALLOWED_RADIUS, LATE_EARLY_TOLERANCE_MIN
+from config import ADMINS, SUPERADMINS, ALLOWED_LAT, ALLOWED_LON, ALLOWED_RADIUS, LATE_EARLY_TOLERANCE_MIN, ADMIN_CONTACT_TEXT
 
 # --- TUZATISH: To'g'ri import usuli ---
 # Endi butun 'database' modulini 'db' nomi bilan chaqiramiz
@@ -1271,7 +1271,7 @@ async def help_command_handler(message: types.Message, state: FSMContext):
         "kechikish sabablari va maosh to'lovlarini boshqarish kabi vazifalarni bajaradi.\n\n"
         "Agar botda biror muammo yoki qo‘shimcha taklif/talab bo‘lsa,"
         "admin(lar)ga murojaat qiling.\n\n"
-        "Admin bilan bog‘lanish:@rustamxojayev_abdulboriy"
+        "Admin bilan bog'lanish: " + ADMIN_CONTACT_TEXT
     )
     await message.reply(help_text)
     await message.answer("Muammo yoki taklifingizni matn ko‘rinishida yozing. Bekor qilish uchun /cancel.")
@@ -1308,8 +1308,7 @@ async def process_help_feedback(message: types.Message, state: FSMContext):
         await notify_selected_admins(SUPERADMINS, to_admins)
 
     await message.reply(
-        "Xabaringiz adminga yuborildi. Tez orada javob kuting.\n"
-        "Admin bilan bog‘lanish: @Z_M_ziyayev, @rustamxojayev_abdulboriy",
+        f"Xabaringiz adminga yuborildi. Tez orada javob kuting.\n{ADMIN_CONTACT_TEXT}",
         reply_markup=types.ReplyKeyboardRemove()
     )
     await state.finish()
@@ -1319,7 +1318,7 @@ async def process_help_feedback(message: types.Message, state: FSMContext):
 async def only_text_for_help(message: types.Message):
     # Bu blokda baza bilan ishlanmaydi, o'zgarmaydi
     await message.reply(
-        "Iltimos, muammo yoki taklifingiz bo'lsa uni to'g'ri yozing, agar muammo bo'layotgan bo'lsa admin bilan bog'laning, admin: @Z_M_ziyayev, @rustamxojayev_abdulboriy. Bekor qilish uchun /cancel.")
+        f"Iltimos, muammo yoki taklifingiz bo'lsa uni to'g'ri yozing, agar muammo bo'layotgan bo'lsa admin bilan bog'laning: {ADMIN_CONTACT_TEXT}. Bekor qilish uchun /cancel.")
 
 
 @dp.message_handler(commands=['mystats'], state=None)

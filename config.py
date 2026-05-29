@@ -192,3 +192,4 @@ GEMINI_FREE_MODELS = [m.strip() for m in _gemini_models_str.split(",") if m.stri
 
 
 WEBAPP_URL = os.getenv("WEBAPP_URL", "")
+ADMIN_CONTACT_TEXT = os.getenv("ADMIN_CONTACT_TEXT", "Admin: @rustamxojayev_abdulboriy")

@@ -40,21 +40,12 @@ scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
 
 
 async def send_morning_briefings():
-    """Barcha faol xodimlarga shaxsiy ertalabki hisobotni yuboradi."""
-    logging.info("Ertalabki shaxsiy hisobotlarni yuborish boshlandi...")
+    """Barcha faol xodimlarga ertalabki eslatma yuboradi."""
+    logging.info("Ertalabki eslatmalarni yuborish boshlandi...")
     active_workers = await db.get_active_employees()
-    yesterday = datetime.date.today() - datetime.timedelta(days=1)
 
     for worker in active_workers:
         try:
-            # Xodimning kechagi ish soatini bazadan olamiz
-            session = await db.get_session_for_worker_on_date(worker['id'], yesterday)
-
-            # Xabarni shakllantirish
-            work_hours_str = "ma'lumot yo'q"
-            if session and session.get('total_hours') is not None:
-                work_hours_str = handlers.admin_handlers.format_hours(session['total_hours'])
-
             # Xodimning bugungi ish boshlash vaqtini olamiz
             worker_info = await db.pool.fetchrow("SELECT work_start FROM workers WHERE id = $1", worker['id'])
             start_time_str = worker_info['work_start'].strftime('%H:%M') if worker_info and worker_info[
@@ -62,7 +53,6 @@ async def send_morning_briefings():
 
             text = (
                 f"Assalomu alaykum, {worker['full_name']}!\n\n"
-                f"📊 Kecha siz <b>{work_hours_str}</b> ishladingiz.\n"
                 f"⏰ Bugungi ish boshlanish vaqtingiz: <b>{start_time_str}</b>.\n\n"
                 f"Yaxshi kun tilayman!"
             )
@@ -133,22 +123,10 @@ async def check_late_arrivals_job():
                 grouped_employees.setdefault(employee.get("branch_id"), []).append(employee)
 
             for branch_id, employees in grouped_employees.items():
-                branch_text = f"<b>KECH QOLGANLAR HISOBOTI ({today}):</b>\n\n"
+                branch_text = f"⏰ <b>KECH QOLGANLAR HISOBOTI ({today}):</b>\n\n"
                 for emp in employees:
-                    branch_text += f"- {emp['full_name']} - <b>{emp['status']}</b>\n"
+                    branch_text += f"👤 {emp['full_name']} - <b>{emp['status']}</b>\n"
                 await notify_admins(branch_text, branch_id=branch_id, parse_mode="HTML")
-            text = f"⏰ <b>KECH QOLGANLAR HISOBOTI ({today}):</b>\n\n"
-            for emp in late_employees:
-                text += f"👤 {emp['full_name']} - <b>{emp['status']}</b>\n"
-            
-            for admin_id in sorted(set(SUPERADMINS)):
-                try:
-                    await bot.send_message(admin_id, text, parse_mode="HTML")
-                except Exception as e:
-                    logging.error(f"Adminga (ID: {admin_id}) kech qolganlar haqida xabar yuborishda xatolik: {e}")
-        else:
-            # Agar hamma vaqtida kelgan bo'lsa
-            pass 
 
     except Exception as e:
         logging.error(f"Kech qolganlarni tekshirishda (check_late_arrivals_job) xatolik: {e}")
@@ -218,15 +196,8 @@ async def check_absence_followup_job():
 
             for branch_id, workers in grouped_workers.items():
                 names = ", ".join(worker["full_name"] for worker in workers)
-                branch_text = f"{names} kelgan bo'lsa, kelganini belgilashni unutmang."
+                branch_text = f"📌 {names} kelgan bo'lsa, kelganini belgilashni unutmang."
                 await notify_admins(branch_text, branch_id=branch_id)
-            names = ", ".join(worker["full_name"] for worker in phone_less_workers)
-            text = f"📌 {names} kelgan bo'lsa, kelganini belgilashni unutmang."
-            for admin_id in sorted(set(SUPERADMINS)):
-                try:
-                    await bot.send_message(admin_id, text)
-                except Exception as exc:
-                    logging.error(f"Admin reminder yuborishda xatolik ({admin_id}): {exc}")
             for worker in phone_less_workers:
                 await db.update_worker_day_status(
                     worker["id"],
