@@ -81,7 +81,9 @@ async def create_pool():
             host=POSTGRES_HOST,
             port=POSTGRES_PORT,
             min_size=1,
-            max_size=10  # Bir vaqtda 10 tagacha ulanish
+            max_size=10,  # Bir vaqtda 10 tagacha ulanish
+            statement_cache_size=0,  # Neon pooler talab qiladi
+            max_inactive_connection_lifetime=60.0,  # Neon auto-suspend uchun
         )
         print("✅ PostgreSQL Connection Pool muvaffaqiyatli yaratildi.")
     except Exception as e:
@@ -1355,7 +1357,7 @@ async def get_order_materials(order_id: int) -> List[dict]:
 
 
 async def add_order_material(order_id: int, material_id: int, quantity: float) -> bool:
-    """Buyurtmaga material qo'shadi va narxni o'zi hisoblaydi."""
+    """Buyurtmaga material qo'shadi va narxni o'zi hisoblaydi."""h
     try:
         async with pool.acquire() as conn:
             unit_cost = await conn.fetchval("SELECT unit_cost FROM materials WHERE id = $1", material_id)
@@ -2692,6 +2694,8 @@ async def create_pool():
                 dsn=DATABASE_URL,
                 min_size=1,
                 max_size=10,
+                statement_cache_size=0,  # Neon pooler talab qiladi
+                max_inactive_connection_lifetime=60.0,  # Neon auto-suspend uchun
             )
         else:
             pool = await asyncpg.create_pool(
@@ -2702,6 +2706,8 @@ async def create_pool():
                 port=POSTGRES_PORT,
                 min_size=1,
                 max_size=10,
+                statement_cache_size=0,
+                max_inactive_connection_lifetime=60.0,
             )
         print("✅ PostgreSQL Connection Pool muvaffaqiyatli yaratildi.")
     except Exception as e:
