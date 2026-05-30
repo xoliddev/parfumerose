@@ -18,6 +18,7 @@ from config import ADMINS, SUPERADMINS, ALLOWED_LAT, ALLOWED_LON, ALLOWED_RADIUS
 import database as db
 from shared import (
     build_admin_home_payload,
+    build_absence_review_keyboard,
     pending_requests,
     describe_admin_action_result,
     get_admin_action_lock,
@@ -1121,6 +1122,70 @@ async def process_uzoqlik_reason(message: types.Message, state: FSMContext):
 async def only_text_reason(message: types.Message):
     # Bu handlerda baza bilan ishlanmaydi, o'zgarmaydi
     await message.answer("Lokatsiyani qayta yuboring yoki sababni matn bilan yozing.")
+
+
+# =================================================================
+#   KELMAGANLIK SABABI  (absence followup -> waiting_for_message)
+# =================================================================
+@dp.message_handler(state=UserAttendance.waiting_for_message,
+                    content_types=types.ContentTypes.TEXT)
+async def process_absence_message(message: types.Message, state: FSMContext):
+    """Kelmagan xodim yozgan sababni admin va guruhga yetkazadi.
+
+    Avval bu holat uchun handler yo'q edi -> xodim yozgan xabar yo'qolardi.
+    """
+    txt = (message.text or "").strip()
+    if not txt:
+        await message.answer("Iltimos, kelmaganligingiz sababini matn ko'rinishida yozing.")
+        return
+
+    worker_record = await db.get_worker_by_tg_id(message.from_user.id)
+    if not worker_record:
+        await message.answer("Xodim topilmadi.")
+        await state.finish()
+        return
+
+    wid = worker_record["id"]
+    wname = worker_record["full_name"]
+    today = datetime.date.today()
+
+    # Sababni kun holatiga va faollik jurnaliga yozamiz
+    try:
+        await db.update_worker_day_status(
+            wid,
+            today,
+            absence_reason=txt,
+            last_source="worker",
+        )
+        await db.log_worker_activity(wid, "absence_reason", txt, None, "worker", today)
+    except Exception as exc:
+        logging.exception("Kelmaganlik sababini saqlashda xatolik: %s", exc)
+
+    # Admin + guruhga sabab va "Sababli/Sababsiz" tugmalari bilan yuboramiz
+    admin_text = (
+        f"✉️ <b>{html.escape(wname)}</b> bugun kelmaganlik sababini yozdi:\n\n"
+        f"<i>{html.escape(txt)}</i>"
+    )
+    sent_messages = await notify_admins_and_group(
+        admin_text,
+        reply_markup=build_absence_review_keyboard(wid),
+        worker_id=wid,
+        parse_mode="HTML",
+    )
+    action_key = f"absence_review:{wid}:{today.isoformat()}"
+    await register_admin_action_messages(action_key, sent_messages)
+
+    await message.answer("✅ Sababingiz adminlarga va guruhga yetkazildi. Rahmat!")
+    await state.finish()
+    await clear_old_employee_reply_keyboard(message.chat.id)
+    await render_employee_menu(message.chat.id, message.from_user.id)
+
+
+@dp.message_handler(state=UserAttendance.waiting_for_message,
+                    content_types=types.ContentTypes.ANY)
+async def process_absence_message_non_text(message: types.Message):
+    """Sabab matndan boshqa formatda kelsa, matn so'raymiz."""
+    await message.answer("Iltimos, kelmaganligingiz sababini matn (yozuv) ko'rinishida yuboring.")
 
 
 # -----------------------------------------------------------------
