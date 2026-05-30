@@ -4,7 +4,6 @@ import logging
 from math import ceil
 from typing import List, Tuple, Optional, Dict, Any
 
-from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import SUPERADMINS
@@ -112,8 +111,8 @@ async def notify_admins_and_group(
 def build_absence_review_keyboard(worker_id: int) -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(row_width=2)
     keyboard.add(
-        InlineKeyboardButton("Sababli", callback_data=f"absence_review:excused:{worker_id}", style="success"),
-        InlineKeyboardButton("Sababsiz", callback_data=f"absence_review:unexcused:{worker_id}", style="danger"),
+        InlineKeyboardButton("Sababli", callback_data=f"absence_review:excused:{worker_id}"),
+        InlineKeyboardButton("Sababsiz", callback_data=f"absence_review:unexcused:{worker_id}"),
     )
     return keyboard
 
@@ -136,11 +135,10 @@ def build_branch_selection_keyboard(
             InlineKeyboardButton(
                 f"{prefix}{branch['name']}",
                 callback_data=f"{callback_prefix}:{branch['id']}",
-                style="primary",
             )
         )
     if back_callback:
-        keyboard.add(InlineKeyboardButton("⬅️ Orqaga", callback_data=back_callback, style="primary"))
+        keyboard.add(InlineKeyboardButton("⬅️ Orqaga", callback_data=back_callback))
     return keyboard
 
 
@@ -303,13 +301,13 @@ def build_paginated_inline(
     # "Oldingi" tugmasi (agar birinchi sahifada bo'lmasak)
     if page > 0:
         nav_buttons.append(
-            InlineKeyboardButton("« Oldingi", callback_data=f"{page_prefix}{page_separator}{page - 1}", style="primary")
+            InlineKeyboardButton("« Oldingi", callback_data=f"{page_prefix}{page_separator}{page - 1}")
         )
 
     # "Keyingi" tugmasi (agar oxirgi sahifada bo'lmasak)
     if page + 1 < total_pages:
         nav_buttons.append(
-            InlineKeyboardButton("Keyingi »", callback_data=f"{page_prefix}{page_separator}{page + 1}", style="primary")
+            InlineKeyboardButton("Keyingi »", callback_data=f"{page_prefix}{page_separator}{page + 1}")
         )
 
     # Agar navigatsiya tugmalari mavjud bo'lsa, ularni bitta qatorga qo'shamiz
@@ -317,7 +315,7 @@ def build_paginated_inline(
         kb.row(*nav_buttons)
 
     # 3. "Orqaga" tugmasini eng oxirgi qatorga har doim qo'shamiz
-    kb.add(InlineKeyboardButton(f"⬅️ Orqaga", callback_data=back_cb, style="primary"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data=back_cb))
 
     return kb
 

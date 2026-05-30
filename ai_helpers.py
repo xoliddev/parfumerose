@@ -5,9 +5,8 @@ import json
 import os
 import re
 import datetime
-import calendar
 import logging
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 # AI va Ovoz uchun kerakli kutubxonalar
 import google.generativeai as genai

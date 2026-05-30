@@ -168,14 +168,8 @@ else:
 ADMINS = sorted(set(SUPERADMINS) | set(BRANCH_ADMIN_IDS))
 
 LATE_EARLY_TOLERANCE_MIN = int(os.getenv("LATE_EARLY_TOLERANCE_MIN", 0))
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY")
 AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
-
-_openrouter_models_str = os.getenv("OPENROUTER_FREE_MODELS", "openrouter/free")
-OPENROUTER_FREE_MODELS = [m.strip() for m in _openrouter_models_str.split(",") if m.strip()]
 
 _keys_str = os.getenv("GEMINI_API_KEYS", "")
 GEMINI_API_KEYS = [k.strip() for k in _keys_str.split(",") if k.strip()]
@@ -191,5 +185,4 @@ _gemini_models_str = os.getenv(
 GEMINI_FREE_MODELS = [m.strip() for m in _gemini_models_str.split(",") if m.strip()]
 
 
-WEBAPP_URL = os.getenv("WEBAPP_URL", "")
 ADMIN_CONTACT_TEXT = os.getenv("ADMIN_CONTACT_TEXT", "Admin: @rustamxojayev_abdulboriy")

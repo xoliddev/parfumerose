@@ -2,31 +2,27 @@
 import html
 import re
 import os  # Buni faylning eng yuqorisiga qo'shing
-import time
 from aiogram.utils.exceptions import MessageNotModified
 import datetime
 import logging
 from aiogram import types
 from aiogram.dispatcher import FSMContext
-from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from aiogram.utils.markdown import hbold, hitalic, hcode
+from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup, InlineKeyboardButton
 
-from ai_helpers import transcribe_voice_to_text, process_admin_request_with_tools, to_latin
+from ai_helpers import transcribe_voice_to_text, process_admin_request_with_tools, to_latin, _prepare_text_for_ai
 from loader import dp, bot
-from config import ABSENCE_REMINDER_DELAY_MIN, ADMINS, LATE_EARLY_TOLERANCE_MIN, SUPERADMINS
+from config import ADMINS, LATE_EARLY_TOLERANCE_MIN, SUPERADMINS
 # --- TUZATISH: To'g'ri import usuli ---
 import database as db
 from states import (
-    AdminAcceptPending, AdminUpdateWorker, AdminAddWorker, AdminSetSalary, AdminAddSalaryPayment,
-    AdminModifyPayment, AdminModifyMonthlySalary, AdminSetDailyHours, AdminSetWorkTime, AIConversation, Disambiguation,
-    AdminManualAttendance, AdminQuickAttendance, Accounting, AdminWebLoginSettings, AdminBranchAdminSettings,
+    AdminAcceptPending, AdminUpdateWorker, AdminSetSalary, AdminAddSalaryPayment, AdminModifyPayment,
+    AdminModifyMonthlySalary, AdminSetDailyHours, AdminSetWorkTime, AdminManualAttendance, AdminQuickAttendance, AdminBranchAdminSettings,
     AdminSuperadminSettings
 )
 from shared import (
     build_branch_selection_keyboard,
     pending_requests,
     notify_admins,
-    notify_admins_and_group,
     notify_selected_admins,
     build_paginated_inline,
     describe_admin_action_result,
@@ -35,26 +31,17 @@ from shared import (
     get_admin_action_lock,
     get_admin_action_result,
     get_superadmin_branch_selector_text,
-    register_admin_action_messages,
     resolve_admin_action,
 )
 from keyboards import (
-    get_admin_main_menu, get_admin_extra_menu,
-    get_weekday_select_menu, get_back_button, get_materials_menu, get_confirm_deletion_keyboard, get_cancel_keyboard,
-    get_order_details_menu, get_accounting_main_menu, get_orders_menu, create_calendar, calendar_callback,
-    get_material_details_menu, get_status_selection_keyboard, get_order_edit_menu, get_order_material_edit_menu,
-    get_material_edit_menu, make_financial_years_keyboard, make_financial_months_keyboard,
-    get_web_login_menu, get_web_login_admin_menu
+    get_admin_extra_menu,
+    get_weekday_select_menu
 )
-from menu_overrides import get_admin_main_menu, get_web_login_menu
+from menu_overrides import get_admin_main_menu
 from handlers.admin_extensions import (
     apply_worker_action_for_admin,
-    build_worker_action_keyboard,
     get_worker_action_button_specs,
 )
-from security_utils import hash_password
-import html
-import pprint
 import pytz
 
 TEMP_AUDIO_DIR = "temp_audio"
@@ -63,12 +50,11 @@ if not os.path.exists(TEMP_AUDIO_DIR):
 
 tashkent_tz = pytz.timezone('Asia/Tashkent')
 
-from config import WEBAPP_URL
 
 
 def _build_web_removed_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("Orqaga", callback_data="admin_extra", style="primary"))
+    kb.add(InlineKeyboardButton("Orqaga", callback_data="admin_extra"))
     return kb
 
 
@@ -93,23 +79,6 @@ async def disabled_web_admin_callbacks(callback_query: types.CallbackQuery):
     )
     await callback_query.answer("Web bo'limi o'chirilgan.")
 
-@dp.message_handler(lambda message: False, commands=['webapp', 'panel'])
-async def open_webapp_command(message: types.Message):
-    """Web bo'limi olib tashlanganini aytadi."""
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton(
-        text="🖥️ Admin Panelni Ochish",
-        web_app=WebAppInfo(url=WEBAPP_URL)
-    ))
-    await message.answer(
-        "📊 <b>Arrizo Mebel Admin Panel</b>\n\n"
-        "Quyidagi tugma orqali web dashboardni ochishingiz mumkin.\n"
-        "⚠️ <i>Eslatma: HTTPS talab qilinadi!</i>",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-
-# handlers/admin_handlers.py faylida
 
 @dp.message_handler(lambda message: message.from_user.id in ADMINS,
                     content_types=types.ContentTypes.VOICE, state=None)
@@ -290,10 +259,9 @@ def _build_worker_branch_picker_keyboard(
             InlineKeyboardButton(
                 f"{prefix}{branch['name']}",
                 callback_data=f"moveworkerto:{worker_id}:{branch['id']}",
-                style="primary",
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data=f"worker_{worker_id}", style="primary"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data=f"worker_{worker_id}"))
     return kb
 
 
@@ -303,17 +271,14 @@ def _build_worker_branch_apply_keyboard(worker_id: int, branch_id: int) -> Inlin
         InlineKeyboardButton(
             "Faqat bundan keyin",
             callback_data=f"moveworkerapply:{worker_id}:{branch_id}:future",
-            style="primary",
         ),
         InlineKeyboardButton(
             "Barcha eski yozuvlar bilan",
             callback_data=f"moveworkerapply:{worker_id}:{branch_id}:history",
-            style="success",
         ),
         InlineKeyboardButton(
             "⬅️ Filial tanlash",
             callback_data=f"moveworker:{worker_id}",
-            style="primary",
         ),
     )
     return kb
@@ -589,8 +554,8 @@ async def pending_menu(callback_query: types.CallbackQuery):
     user_id = callback_query.data.split("_")[1]
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
-        types.InlineKeyboardButton("Qabul qilish", callback_data=f"pending_accept_{user_id}", style="success"),
-        types.InlineKeyboardButton("Rad etish", callback_data=f"pending_reject_{user_id}", style="danger")
+        types.InlineKeyboardButton("Qabul qilish", callback_data=f"pending_accept_{user_id}"),
+        types.InlineKeyboardButton("Rad etish", callback_data=f"pending_reject_{user_id}")
     )
     await notify_selected_admins(SUPERADMINS, f"Pending ariza (ID: {user_id}) uchun amallar:", reply_markup=keyboard)
     await callback_query.answer()
@@ -1447,8 +1412,8 @@ async def worker_menu(callback_query: types.CallbackQuery):
     specs = await get_worker_action_button_specs(worker_id)
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.row(
-        types.InlineKeyboardButton("📋 Ko'rish", callback_data=f"view_{worker_id}", style="primary"),
-        types.InlineKeyboardButton("✏️ Tahrirlash", callback_data=f"update_{worker_id}", style="primary"),
+        types.InlineKeyboardButton("📋 Ko'rish", callback_data=f"view_{worker_id}"),
+        types.InlineKeyboardButton("✏️ Tahrirlash", callback_data=f"update_{worker_id}"),
     )
     if callback_query.from_user.id in SUPERADMINS:
         branch_button_text = "🏢 Filialni o'zgartirish"
@@ -1458,28 +1423,25 @@ async def worker_menu(callback_query: types.CallbackQuery):
             types.InlineKeyboardButton(
                 branch_button_text,
                 callback_data=f"moveworker:{worker_id}",
-                style="primary",
             )
         )
     keyboard.add(
-        types.InlineKeyboardButton("🗑 O'chirish", callback_data=f"delete_{worker_id}", style="danger")
+        types.InlineKeyboardButton("🗑 O'chirish", callback_data=f"delete_{worker_id}")
     )
     keyboard.row(
         types.InlineKeyboardButton(
             specs["work_label"],
             callback_data=f"wact:{specs['work_action']}:{worker_id}",
-            style=specs["work_style"],
         ),
-        types.InlineKeyboardButton("🌙 Dam", callback_data=f"wact:rest:{worker_id}", style="danger"),
+        types.InlineKeyboardButton("🌙 Dam", callback_data=f"wact:rest:{worker_id}"),
     )
     keyboard.add(
         types.InlineKeyboardButton(
             specs["study_label"],
             callback_data=f"wact:{specs['study_action']}:{worker_id}",
-            style=specs["study_style"],
         )
     )
-    keyboard.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_workers", style="primary"))
+    keyboard.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_workers"))
 
     await callback_query.message.edit_text(
         f"Xodim: {_format_worker_branch_label(worker)} (ID: {worker_id})\nAmalni tanlang:",
@@ -1606,8 +1568,8 @@ async def move_worker_branch_apply(callback_query: types.CallbackQuery):
 
     done_keyboard = InlineKeyboardMarkup(row_width=1)
     done_keyboard.add(
-        InlineKeyboardButton("⬅️ Xodim kartasi", callback_data=f"worker_{worker_id}", style="primary"),
-        InlineKeyboardButton("⬅️ Xodimlar ro'yxati", callback_data="admin_workers", style="primary"),
+        InlineKeyboardButton("⬅️ Xodim kartasi", callback_data=f"worker_{worker_id}"),
+        InlineKeyboardButton("⬅️ Xodimlar ro'yxati", callback_data="admin_workers"),
     )
     history_text = (
         "Barcha eski davomat va attendance yozuvlari ham shu filialga ko'chirildi."
@@ -3102,19 +3064,17 @@ async def _build_attendance_action_keyboard(worker_id: int, page: int) -> Inline
         InlineKeyboardButton(
             specs["work_label"],
             callback_data=f"wactatt:{specs['work_action']}:{worker_id}:{page}",
-            style=specs["work_style"],
         ),
-        InlineKeyboardButton("🌙 Dam", callback_data=f"wactatt:rest:{worker_id}:{page}", style="danger"),
+        InlineKeyboardButton("🌙 Dam", callback_data=f"wactatt:rest:{worker_id}:{page}"),
     )
     kb.add(
         InlineKeyboardButton(
             specs["study_label"],
             callback_data=f"wactatt:{specs['study_action']}:{worker_id}:{page}",
-            style=specs["study_style"],
         )
     )
     kb.add(
-        InlineKeyboardButton("⬅️ Orqaga", callback_data=f"attendance_workers:{page}", style="primary")
+        InlineKeyboardButton("⬅️ Orqaga", callback_data=f"attendance_workers:{page}")
     )
     return kb
 
@@ -3288,12 +3248,6 @@ async def attendance_quick_pick_worker(message: types.Message, state: FSMContext
         )
         return
 
-    selection_style = "primary"
-    if action in {"in", "study_return"}:
-        selection_style = "success"
-    elif action in {"out", "rest"}:
-        selection_style = "danger"
-
     kb = InlineKeyboardMarkup(row_width=1)
     for worker in candidates:
         phone_status = "📱" if worker.get("has_phone") else "📴"
@@ -3301,10 +3255,9 @@ async def attendance_quick_pick_worker(message: types.Message, state: FSMContext
             InlineKeyboardButton(
                 f"{phone_status} {_format_worker_branch_label(worker)} (ID:{worker['id']})",
                 callback_data=f"aiatt:{action}:{worker['id']}",
-                style=selection_style,
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main"))
 
     await _cleanup_admin_input_message(message)
     await state.finish()
@@ -3357,8 +3310,8 @@ async def manual_attendance_get_date(callback_query: types.CallbackQuery, state:
     today_str = datetime.date.today().strftime("%Y-%m-%d")
     date_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     date_kb.row(
-        types.KeyboardButton("Bugun uchun", style="success"),
-        types.KeyboardButton("Bekor qilish", style="danger"),
+        types.KeyboardButton("Bugun uchun"),
+        types.KeyboardButton("Bekor qilish"),
     )
     await callback_query.message.edit_text("Xodim tanlandi. Sana kiritish oynasi ochildi.")
     worker_prompt_label = worker.get("full_name") if worker else str(worker_id)
@@ -3394,8 +3347,8 @@ async def manual_attendance_get_arrival(message: types.Message, state: FSMContex
         except ValueError:
             date_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
             date_kb.row(
-                types.KeyboardButton("Bugun uchun", style="success"),
-                types.KeyboardButton("Bekor qilish", style="danger"),
+                types.KeyboardButton("Bugun uchun"),
+                types.KeyboardButton("Bekor qilish"),
             )
             await message.reply(
                 "Sana formati noto'g'ri. Iltimos, YYYY-MM-DD formatida kiriting yoki tugmadan foydalaning.",
@@ -3534,13 +3487,13 @@ def _build_quick_attendance_prompt_text(action: str) -> str:
 
 def _build_quick_attendance_prompt_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main"))
     return kb
 
 
 def _build_quick_attendance_done_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("⬅️ Admin menyusi", callback_data="back_admin_main", style="primary"))
+    kb.add(InlineKeyboardButton("⬅️ Admin menyusi", callback_data="back_admin_main"))
     return kb
 
 
@@ -3644,12 +3597,6 @@ async def _try_handle_ai_attendance_command(
         )
         return True
 
-    selection_style = "primary"
-    if action in {"in", "study_return"}:
-        selection_style = "success"
-    elif action in {"out", "rest"}:
-        selection_style = "danger"
-
     kb = InlineKeyboardMarkup(row_width=1)
     for worker in candidates:
         phone_status = "📱" if worker.get("has_phone") else "📴"
@@ -3657,10 +3604,9 @@ async def _try_handle_ai_attendance_command(
             InlineKeyboardButton(
                 f"{phone_status} {_format_worker_branch_label(worker)} (ID:{worker['id']})",
                 callback_data=f"aiatt:{action}:{worker['id']}",
-                style=selection_style,
             )
         )
-    kb.add(InlineKeyboardButton("❌ Bekor qilish", callback_data="aiatt:cancel", style="danger"))
+    kb.add(InlineKeyboardButton("❌ Bekor qilish", callback_data="aiatt:cancel"))
 
     await processing_message.edit_text(
         f"🔎 Bir nechta o'xshash ism topildi.\nQaysi xodimni <b>{action_title}</b> deb belgilaymiz?",
@@ -3700,29 +3646,6 @@ async def ai_attendance_disambiguation_callback(callback_query: types.CallbackQu
         f"✅ AI orqali saqlandi: {_format_worker_branch_label(worker)} {action_text}."
     )
     await callback_query.answer("Saqlandi.")
-
-
-# admin_handlers.py faylidagi funksiya
-def _prepare_text_for_ai(text: str) -> str:
-    """
-    AI'ga yuborishdan oldin matnni tahlil qiladi va pul bilan bog'liq xatolarni tuzatadi.
-    """
-    text = text.strip()
-    # ... (funksiya kodi o'zgarishsiz qoladi) ...
-    misheard_words = ['son', 'som', 'сўн', 'сом']
-    for word in misheard_words:
-        text = re.sub(fr'(\d+\s*({word}))', lambda m: m.group(1).replace(word, 'so‘m'), text, flags=re.IGNORECASE)
-        text = re.sub(fr'((ming|million|минг|миллион)\s*({word}))', lambda m: m.group(1).replace(word, 'so‘m'), text,
-                      flags=re.IGNORECASE)
-    money_keywords = ['ming', 'million', 'минг', 'миллион']
-    if 'so‘m' not in text.lower() and 'сўм' not in text.lower():
-        if any(keyword in text.lower() for keyword in money_keywords):
-            if any(char.isdigit() for char in text):
-                for keyword in money_keywords:
-                    if keyword in text.lower():
-                        text = re.sub(f'({keyword})', r'\1 so‘m', text, count=1, flags=re.IGNORECASE)
-                        break
-    return text
 
 
 @dp.message_handler(lambda message: message.from_user.id in ADMINS and not message.text.startswith('/'),
@@ -3787,7 +3710,7 @@ async def _render_superadmin_list(
         lines.extend(["", "Config bilan qo'shilgan katta adminlarni bot ichidan o'chirib bo'lmaydi."])
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("➕ Katta admin qo'shish", callback_data="superadmins:add", style="success"))
+    kb.add(InlineKeyboardButton("➕ Katta admin qo'shish", callback_data="superadmins:add"))
     for row in admins:
         if row.get("source") != "manual":
             continue
@@ -3795,10 +3718,9 @@ async def _render_superadmin_list(
             InlineKeyboardButton(
                 f"🗑 {_format_branch_admin_display(row)}",
                 callback_data=f"superadmins:askremove:{row['tg_id']}",
-                style="danger",
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra", style="primary"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra"))
 
     final_text = "\n".join(lines)
     if message_obj is not None:
@@ -3893,9 +3815,8 @@ async def superadmins_add_finish(message: types.Message, state: FSMContext):
         InlineKeyboardButton(
             "✅ Tasdiqlash",
             callback_data=f"superadmins:confirmadd:{tg_id}",
-            style="success",
         ),
-        InlineKeyboardButton("⬅️ Orqaga", callback_data="superadmins:menu", style="primary"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="superadmins:menu"),
     )
     await state.finish()
     await message.reply(
@@ -3970,9 +3891,8 @@ async def superadmins_ask_remove(callback_query: types.CallbackQuery):
         InlineKeyboardButton(
             "🗑 Ha, olib tashlash",
             callback_data=f"superadmins:remove:{tg_id}",
-            style="danger",
         ),
-        InlineKeyboardButton("⬅️ Orqaga", callback_data="superadmins:menu", style="primary"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="superadmins:menu"),
     )
     await callback_query.message.edit_text(
         f"Haqiqatan ham {_format_branch_admin_display(admin_row)} ni katta admindan olamizmi?\n"
@@ -4042,7 +3962,7 @@ async def _render_branch_admin_branch_view(
             )
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("➕ Admin qo'shish", callback_data=f"branch_admins:add:{branch_id}", style="success"))
+    kb.add(InlineKeyboardButton("➕ Admin qo'shish", callback_data=f"branch_admins:add:{branch_id}"))
     for row in admins:
         delete_label = f"🗑 {_format_branch_admin_display(row)}"
         if row.get("source") == "config":
@@ -4051,10 +3971,9 @@ async def _render_branch_admin_branch_view(
             InlineKeyboardButton(
                 delete_label,
                 callback_data=f"branch_admins:remove:{branch_id}:{row['tg_id']}",
-                style="danger",
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Filiallar", callback_data="branch_admins:menu", style="primary"))
+    kb.add(InlineKeyboardButton("⬅️ Filiallar", callback_data="branch_admins:menu"))
 
     final_text = "\n".join(lines)
     if message_obj is not None:
@@ -4087,10 +4006,9 @@ async def branch_admins_menu(callback_query: types.CallbackQuery):
             InlineKeyboardButton(
                 f"{branch['name']} ({count} admin)",
                 callback_data=f"branch_admins:view:{branch['id']}",
-                style="primary",
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra", style="primary"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra"))
 
     await callback_query.message.edit_text(
         "Qaysi filial adminlarini boshqarmoqchisiz?",
@@ -4277,271 +4195,3 @@ async def branch_admins_remove(callback_query: types.CallbackQuery):
 
     await _render_branch_admin_branch_view(callback_query.message, branch_id)
     await callback_query.answer("Filial admini olib tashlandi.")
-
-
-@dp.callback_query_handler(lambda c: c.data == "web_login_menu")
-async def web_login_menu_handler(callback_query: types.CallbackQuery):
-    """Web login sozlamalari menyusini ochadi."""
-    if not await _ensure_superadmin_callback(callback_query):
-        return
-    
-    await callback_query.message.edit_text(
-        "🔐 <b>Web Login Sozlamalari</b>\n\n"
-        "Bu yerda web admin panelga kirish uchun loginlarni boshqarishingiz mumkin.\n"
-        "Parollar bazada shifrlangan holda saqlanadi.",
-        reply_markup=get_web_login_menu(),
-        parse_mode="HTML"
-    )
-    await callback_query.answer()
-
-
-@dp.callback_query_handler(lambda c: c.data == "weblogin:list")
-async def web_login_list_handler(callback_query: types.CallbackQuery):
-    """Barcha adminlar ro'yxatini ko'rsatadi."""
-    if not await _ensure_superadmin_callback(callback_query):
-        return
-    
-    admins = await db.get_all_admins()
-    
-    if not admins:
-        text = "📭 Hech qanday admin topilmadi."
-    else:
-        text = "👥 <b>Web Admin Ro'yxati:</b>\n\n"
-        for admin in admins:
-            role_emoji = "👑" if admin['role'] == 'superadmin' else "👤"
-            text += f"{role_emoji} <b>{admin['username']}</b> - {admin['full_name'] or 'Ism kiritilmagan'}\n"
-            text += f"   📋 Rol: {admin['role']}\n\n"
-    
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    for admin in admins:
-        is_main = admin['username'] == 'admin'
-        emoji = "👑" if is_main else "👤"
-        kb.add(types.InlineKeyboardButton(
-            f"{emoji} {admin['username']}",
-            callback_data=f"weblogin:view:{admin['id']}"
-        ))
-    kb.add(types.InlineKeyboardButton("➕ Yangi admin qo'shish", callback_data="weblogin:add"))
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="web_login_menu"))
-    
-    await callback_query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await callback_query.answer()
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("weblogin:view:"))
-async def web_login_view_admin(callback_query: types.CallbackQuery):
-    """Tanlangan adminni ko'rsatadi."""
-    if not await _ensure_superadmin_callback(callback_query):
-        return
-    
-    admin_id = int(callback_query.data.split(":")[2])
-    
-    async with db.pool.acquire() as conn:
-        admin = await conn.fetchrow("SELECT * FROM admins WHERE id = $1", admin_id)
-    
-    if not admin:
-        return await callback_query.answer("Admin topilmadi", show_alert=True)
-    
-    is_main_admin = admin['username'] == 'admin'
-    role_emoji = "👑" if admin['role'] == 'superadmin' else "👤"
-    
-    text = (
-        f"{role_emoji} <b>{admin['username']}</b>\n\n"
-        f"📛 Ism: {admin['full_name'] or 'Kiritilmagan'}\n"
-        f"📋 Rol: {admin['role']}\n"
-        f"📅 Yaratilgan: {admin['created_at'].strftime('%Y-%m-%d %H:%M') if admin['created_at'] else 'Noma`lum'}"
-    )
-    
-    if is_main_admin:
-        text += "\n\n⚠️ <i>Bu asosiy admin hisobi, o'chirib bo'lmaydi.</i>"
-    
-    await callback_query.message.edit_text(
-        text,
-        reply_markup=get_web_login_admin_menu(admin_id, is_main_admin),
-        parse_mode="HTML"
-    )
-    await callback_query.answer()
-
-
-@dp.callback_query_handler(lambda c: c.data == "weblogin:add")
-async def web_login_add_start(callback_query: types.CallbackQuery, state: FSMContext):
-    """Yangi admin qo'shishni boshlaydi."""
-    if not await _ensure_superadmin_callback(callback_query):
-        return
-    
-    await callback_query.message.edit_text(
-        "➕ <b>Yangi Admin Qo'shish</b>\n\n"
-        "Yangi admin uchun <b>username</b> kiriting:\n"
-        "(Masalan: manager1)",
-        parse_mode="HTML"
-    )
-    await AdminWebLoginSettings.waiting_for_username.set()
-    await callback_query.answer()
-
-
-@dp.message_handler(state=AdminWebLoginSettings.waiting_for_username, content_types=types.ContentTypes.TEXT)
-async def web_login_get_username(message: types.Message, state: FSMContext):
-    """Username ni qabul qiladi."""
-    if not await _ensure_superadmin_message(message, state):
-        return
-    
-    username = message.text.strip().lower()
-    
-    # Username tekshirish
-    if len(username) < 3:
-        return await message.reply("❌ Username kamida 3 ta belgidan iborat bo'lishi kerak.")
-    
-    if not username.isalnum():
-        return await message.reply("❌ Username faqat harf va raqamlardan iborat bo'lishi kerak.")
-    
-    # Mavjudligini tekshirish
-    existing = await db.get_admin_by_username(username)
-    if existing:
-        return await message.reply("❌ Bu username allaqachon mavjud. Boshqa username kiriting.")
-    
-    await state.update_data(new_username=username)
-    await AdminWebLoginSettings.waiting_for_password.set()
-    await message.reply(
-        f"✅ Username: <b>{username}</b>\n\n"
-        "Endi <b>parol</b> kiriting:\n"
-        "(Kamida 6 ta belgi)",
-        parse_mode="HTML"
-    )
-
-
-@dp.message_handler(state=AdminWebLoginSettings.waiting_for_password, content_types=types.ContentTypes.TEXT)
-async def web_login_get_password(message: types.Message, state: FSMContext):
-    """Parolni qabul qiladi."""
-    if not await _ensure_superadmin_message(message, state):
-        return
-    
-    password = message.text.strip()
-    
-    if len(password) < 6:
-        return await message.reply("❌ Parol kamida 6 ta belgidan iborat bo'lishi kerak.")
-    
-    await state.update_data(new_password=password)
-    await AdminWebLoginSettings.waiting_for_fullname.set()
-    await message.reply(
-        "✅ Parol qabul qilindi!\n\n"
-        "Endi admin <b>to'liq ismini</b> kiriting:\n"
-        "(Masalan: Abdulloh Karimov)",
-        parse_mode="HTML"
-    )
-
-
-@dp.message_handler(state=AdminWebLoginSettings.waiting_for_fullname, content_types=types.ContentTypes.TEXT)
-async def web_login_get_fullname(message: types.Message, state: FSMContext):
-    """To'liq ismni qabul qiladi va adminni yaratadi."""
-    if not await _ensure_superadmin_message(message, state):
-        return
-    
-    full_name = message.text.strip()
-    data = await state.get_data()
-    
-    username = data['new_username']
-    password = data['new_password']
-    
-    # Parolni shifrlash
-    password_hash = hash_password(password)
-    
-    # Admin yaratish
-    success = await db.create_admin(username, password_hash, full_name, "manager")
-    
-    await state.finish()
-    
-    if success:
-        await message.reply(
-            f"✅ <b>Yangi admin yaratildi!</b>\n\n"
-            f"👤 Username: <code>{username}</code>\n"
-            f"🔑 Parol: <code>{password}</code>\n"
-            f"📛 Ism: {full_name}\n\n"
-            f"⚠️ <i>Bu xabarni saqlab qo'ying!</i>",
-            parse_mode="HTML"
-        )
-    else:
-        await message.reply("❌ Admin yaratishda xatolik yuz berdi.")
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("weblogin:change_pass:"))
-async def web_login_change_pass_start(callback_query: types.CallbackQuery, state: FSMContext):
-    """Parol o'zgartirishni boshlaydi."""
-    if not await _ensure_superadmin_callback(callback_query):
-        return
-    
-    admin_id = int(callback_query.data.split(":")[2])
-    await state.update_data(change_pass_admin_id=admin_id)
-    
-    await callback_query.message.edit_text(
-        "🔑 <b>Parolni O'zgartirish</b>\n\n"
-        "Yangi parolni kiriting:\n"
-        "(Kamida 6 ta belgi)",
-        parse_mode="HTML"
-    )
-    await AdminWebLoginSettings.waiting_for_new_password.set()
-    await callback_query.answer()
-
-
-@dp.message_handler(state=AdminWebLoginSettings.waiting_for_new_password, content_types=types.ContentTypes.TEXT)
-async def web_login_set_new_password(message: types.Message, state: FSMContext):
-    """Yangi parolni o'rnatadi."""
-    if not await _ensure_superadmin_message(message, state):
-        return
-    
-    new_password = message.text.strip()
-    
-    if len(new_password) < 6:
-        return await message.reply("❌ Parol kamida 6 ta belgidan iborat bo'lishi kerak.")
-    
-    data = await state.get_data()
-    admin_id = data['change_pass_admin_id']
-    
-    # Parolni shifrlash va yangilash
-    password_hash = hash_password(new_password)
-    success = await db.update_admin_password(admin_id, password_hash)
-    
-    await state.finish()
-    
-    if success:
-        await message.reply(
-            f"✅ <b>Parol muvaffaqiyatli o'zgartirildi!</b>\n\n"
-            f"🔑 Yangi parol: <code>{new_password}</code>\n\n"
-            f"⚠️ <i>Bu xabarni saqlab qo'ying!</i>",
-            parse_mode="HTML"
-        )
-    else:
-        await message.reply("❌ Parolni o'zgartirishda xatolik yuz berdi.")
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith("weblogin:delete:"))
-async def web_login_delete_admin(callback_query: types.CallbackQuery):
-    """Adminni o'chiradi."""
-    if not await _ensure_superadmin_callback(callback_query):
-        return
-    
-    admin_id = int(callback_query.data.split(":")[2])
-    
-    success = await db.delete_admin(admin_id)
-    
-    if success:
-        await callback_query.answer("✅ Admin o'chirildi!", show_alert=True)
-        # Ro'yxatga qaytish
-        admins = await db.get_all_admins()
-        text = "👥 <b>Web Admin Ro'yxati:</b>\n\n"
-        for admin in admins:
-            role_emoji = "👑" if admin['role'] == 'superadmin' else "👤"
-            text += f"{role_emoji} <b>{admin['username']}</b> - {admin['full_name'] or 'Ism kiritilmagan'}\n"
-        
-        kb = types.InlineKeyboardMarkup(row_width=1)
-        for admin in admins:
-            is_main = admin['username'] == 'admin'
-            emoji = "👑" if is_main else "👤"
-            kb.add(types.InlineKeyboardButton(
-                f"{emoji} {admin['username']}",
-                callback_data=f"weblogin:view:{admin['id']}"
-            ))
-        kb.add(types.InlineKeyboardButton("➕ Yangi admin qo'shish", callback_data="weblogin:add"))
-        kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="web_login_menu"))
-        
-        await callback_query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    else:
-        await callback_query.answer("❌ O'chirib bo'lmadi. Bu asosiy admin bo'lishi mumkin.", show_alert=True)

@@ -6,7 +6,6 @@ import database as db
 from datetime import datetime, timedelta, date
 from typing import Optional, List, Dict, Any
 from pytz import timezone
-from config import SUPERADMINS
 
 uz_tz = timezone('Asia/Tashkent')
 

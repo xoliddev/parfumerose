@@ -7,7 +7,6 @@ from aiogram.dispatcher import FSMContext
 import database as db
 from config import ABSENCE_REMINDER_DELAY_MIN, ADMINS, SUPERADMINS
 from loader import dp
-from menu_overrides import get_admin_main_menu
 from shared import (
     build_admin_home_payload,
     build_branch_selection_keyboard,
@@ -195,19 +194,17 @@ async def build_worker_action_keyboard(worker_id: int, back_callback: str) -> ty
         types.InlineKeyboardButton(
             specs["work_label"],
             callback_data=f"wact:{specs['work_action']}:{worker_id}",
-            style=specs["work_style"],
         ),
-        types.InlineKeyboardButton("🌙 Dam", callback_data=f"wact:rest:{worker_id}", style="danger"),
+        types.InlineKeyboardButton("🌙 Dam", callback_data=f"wact:rest:{worker_id}"),
     )
     kb.add(
         types.InlineKeyboardButton(
             specs["study_label"],
             callback_data=f"wact:{specs['study_action']}:{worker_id}",
-            style=specs["study_style"],
         )
     )
     kb.add(
-        types.InlineKeyboardButton("⬅️ Orqaga", callback_data=back_callback, style="primary"),
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data=back_callback),
     )
     return kb
 

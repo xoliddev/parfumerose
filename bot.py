@@ -1,7 +1,6 @@
 # bot.py (asosiy ishga tushiruvchi fayl)
 
 import logging
-import asyncio
 import datetime
 import sys
 
@@ -18,7 +17,6 @@ from loader import dp, bot
 
 # Ma'lumotlar bazasi bilan ishlash uchun kerakli funksiyalar
 import database as db
-import database_runtime_overrides  # noqa: F401
 from config import ABSENCE_REMINDER_DELAY_MIN, BOT_TOKEN, SUPERADMINS
 from states import UserAttendance
 from shared import (

@@ -229,3 +229,6 @@ parfume_rose_project.tar.gz
 data/
 bot (1).py
 gcp_credentials.json
+
+# IDE
+.idea/

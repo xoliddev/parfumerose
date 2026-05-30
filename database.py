@@ -70,26 +70,6 @@ async def refresh_runtime_admins() -> List[int]:
     )
 
 
-async def create_pool():
-    """Bot ishga tushganda ma'lumotlar bazasi bilan ulanishlar hovuzini yaratadi."""
-    global pool
-    try:
-        pool = await asyncpg.create_pool(
-            user=POSTGRES_USER,
-            password=POSTGRES_PASSWORD,
-            database=POSTGRES_DB,
-            host=POSTGRES_HOST,
-            port=POSTGRES_PORT,
-            min_size=1,
-            max_size=10,  # Bir vaqtda 10 tagacha ulanish
-            statement_cache_size=0,  # Neon pooler talab qiladi
-            max_inactive_connection_lifetime=60.0,  # Neon auto-suspend uchun
-        )
-        print("✅ PostgreSQL Connection Pool muvaffaqiyatli yaratildi.")
-    except Exception as e:
-        print(f"❌ PostgreSQL ulanishda xatolik: {e}")
-
-
 async def init_db():
     """Barcha asosiy ma'lumotlar bazasi jadvallarini yaratadi."""
     async with pool.acquire() as conn:
@@ -268,7 +248,6 @@ async def init_db():
     print("🛠️ Asosiy jadvallar tekshirildi va tayyor.")
     # BUXGALTERIYA JADVALLARINI HAM ISHGA TUSHIRAMIZ
     await init_accounting_db()
-
 
 
 # --- BUHGALTERIYA UCHUN YANGI JADVALLAR ---
@@ -1100,7 +1079,7 @@ async def admin_can_access_branch(admin_tg_id: int, branch_id: Optional[int]) ->
 
 async def list_workers_for_admin(admin_tg_id: int, order_by: str = "id") -> List[Dict[str, Any]]:
     order_sql = "w.id ASC" if order_by == "id" else "w.full_name ASC, w.id ASC"
-    base_query = f"""
+    base_query = """
         SELECT w.id, w.full_name, w.branch_id, b.name AS branch_name
         FROM workers w
         LEFT JOIN branches b ON b.id = w.branch_id
@@ -1120,7 +1099,7 @@ async def list_workers_for_admin(admin_tg_id: int, order_by: str = "id") -> List
 
 async def list_active_workers_for_admin(admin_tg_id: int, order_by: str = "id") -> List[Dict[str, Any]]:
     order_sql = "w.id ASC" if order_by == "id" else "w.full_name ASC, w.id ASC"
-    base_query = f"""
+    base_query = """
         SELECT w.id, w.full_name, w.branch_id, b.name AS branch_name
         FROM workers w
         LEFT JOIN branches b ON b.id = w.branch_id
@@ -1187,326 +1166,13 @@ async def get_user_distinct_months(tg_id: int, year: int) -> List[Tuple[int, str
 # --- BUHGALTERIYA UCHUN FUNKSIYALAR (BA'ZILARI O'ZGARTIRILGAN, BA'ZILARI YANGI) ---
 
 # --- Buyurtmalar (Orders) ---
-async def get_all_orders(page: int = 0, per_page: int = 9) -> List[dict]:
-    offset = page * per_page
-    async with pool.acquire() as conn:
-        return [dict(row) for row in
-                await conn.fetch("SELECT * FROM orders ORDER BY created_at DESC LIMIT $1 OFFSET $2", per_page, offset)]
-
-
-async def get_order_count() -> int:
-    async with pool.acquire() as conn:
-        return await conn.fetchval("SELECT COUNT(*) FROM orders") or 0
-
-
-async def get_order_by_id(order_id: int) -> Optional[dict]:
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM orders WHERE id = $1", order_id)
-        return dict(row) if row else None
-
-
-async def create_order(name: str, desc: str, client_name: str, client_contact: str, start_date: date, deadline: date,
-                       total_cost: float) -> Optional[int]:
-    async with pool.acquire() as conn:
-        return await conn.fetchval(
-            "INSERT INTO orders (order_name, description, client_name, client_contact, start_date, deadline, total_cost) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-            name, desc, client_name, client_contact, start_date, deadline, total_cost)
-
-
-async def update_order(order_id: int, **kwargs) -> bool:
-    if not kwargs: return False
-    set_clause = ", ".join([f"{k} = ${i + 2}" for i, k in enumerate(kwargs.keys())])
-    values = [order_id] + list(kwargs.values())
-    query = f"UPDATE orders SET {set_clause} WHERE id = $1"
-    async with pool.acquire() as conn:
-        result = await conn.execute(query, *values)
-        return "UPDATE 1" in result
-
-
-async def delete_order(order_id: int) -> bool:
-    async with pool.acquire() as conn:
-        result = await conn.execute("DELETE FROM orders WHERE id = $1", order_id)
-        return "DELETE 1" in result
-
-
 # --- Kategoriyalar bilan ishlash uchun YANGI funksiyalar ---
 
-async def create_material_category(name: str, parent_id: Optional[int] = None) -> Optional[int]:
-    """Yangi kategoriya yaratadi va uning ID sini qaytaradi."""
-    try:
-        async with pool.acquire() as conn:
-            return await conn.fetchval(
-                "INSERT INTO material_categories (name, parent_id) VALUES ($1, $2) RETURNING id",
-                name, parent_id)
-    except asyncpg.UniqueViolationError:
-        return None
-
-
-async def get_material_categories(parent_id: Optional[int] = None) -> List[dict]:
-    """Belgilangan ota-kategoriya ichidagi barcha kategoriyalarni qaytaradi."""
-    query = "SELECT * FROM material_categories WHERE parent_id = $1 ORDER BY name ASC"
-    if parent_id is None:
-        query = "SELECT * FROM material_categories WHERE parent_id IS NULL ORDER BY name ASC"
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(query, parent_id) if parent_id is not None else await conn.fetch(query)
-        return [dict(row) for row in rows]
-
-
-async def get_all_material_categories_flat() -> List[dict]:
-    """Barcha kategoriyalarni yagona ro'yxat qilib qaytaradi."""
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT id, name FROM material_categories ORDER BY name ASC")
-        return [dict(row) for row in rows]
-
-
-async def get_category_path(category_id: int) -> List[dict]:
-    """Berilgan kategoriyadan boshlab yuqoriga qarab to'liq yo'lni (path) qaytaradi."""
-    async with pool.acquire() as conn:
-        path = await conn.fetch("""
-                                WITH RECURSIVE category_path AS (SELECT id, name, parent_id
-                                                                 FROM material_categories
-                                                                 WHERE id = $1
-                                                                 UNION ALL
-                                                                 SELECT c.id, c.name, c.parent_id
-                                                                 FROM material_categories c
-                                                                          JOIN category_path cp ON c.id = cp.parent_id)
-                                SELECT id, name
-                                FROM category_path;
-                                """, category_id)
-        # Natijani to'g'ri tartibga keltiramiz (yuqoridan pastga)
-        return [dict(row) for row in reversed(path)]
-
-
 # --- Materiallar (Materials) ---
-async def get_materials_in_category(category_id: Optional[int]) -> List[dict]:
-    """
-    Belgilangan kategoriya ichidagi barcha materiallarni qaytaradi.
-    Agar category_id=None bo'lsa, kategoriyasiz materiallarni qaytaradi.
-    """
-    async with pool.acquire() as conn:
-        if category_id is None:
-            # Agar ID berilmagan bo'lsa (ya'ni, bosh sahifa), kategoriyasiz materiallarni olamiz
-            query = "SELECT * FROM materials WHERE category_id IS NULL ORDER BY name ASC"
-            rows = await conn.fetch(query)
-        else:
-            # Agar ID berilgan bo'lsa, o'sha kategoriyadagi materiallarni olamiz
-            query = "SELECT * FROM materials WHERE category_id = $1 ORDER BY name ASC"
-            rows = await conn.fetch(query, category_id)
-        return [dict(row) for row in rows]
-
-
-async def get_all_materials(page: int = 0, per_page: int = 9) -> List[dict]:
-    offset = page * per_page
-    async with pool.acquire() as conn:
-        return [dict(row) for row in
-                await conn.fetch("SELECT * FROM materials ORDER BY name ASC LIMIT $1 OFFSET $2", per_page, offset)]
-
-
-async def get_material_count() -> int:
-    async with pool.acquire() as conn:
-        return await conn.fetchval("SELECT COUNT(*) FROM materials") or 0
-
-
-async def get_material_by_id(material_id: int) -> Optional[dict]:
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM materials WHERE id = $1", material_id)
-        return dict(row) if row else None
-
-
-async def create_material(name: str, unit: str, unit_cost: float, category_id: Optional[int] = None,
-                          image_url: Optional[str] = None) -> bool:
-    """Yangi material yaratadi (kategoriya va surat bilan)."""
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO materials (name, unit, unit_cost, category_id, image_url) VALUES ($1, $2, $3, $4, $5)",
-                name, unit, unit_cost, category_id, image_url)
-        return True
-    except asyncpg.UniqueViolationError:
-        return False
-
-
-async def update_material(material_id: int, **kwargs) -> bool:
-    if not kwargs: return False
-    set_clause = ", ".join([f"{k} = ${i + 2}" for i, k in enumerate(kwargs.keys())])
-    values = [material_id] + list(kwargs.values())
-    query = f"UPDATE materials SET {set_clause} WHERE id = $1"
-    async with pool.acquire() as conn:
-        result = await conn.execute(query, *values)
-        return "UPDATE 1" in result
-
-
-async def delete_material(material_id: int) -> bool:
-    async with pool.acquire() as conn:
-        result = await conn.execute("DELETE FROM materials WHERE id = $1", material_id)
-        return "DELETE 1" in result
-
-
 # --- Order Materials ---
-async def get_order_materials(order_id: int) -> List[dict]:
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-                                SELECT om.id, m.name, om.quantity, m.unit, om.cost
-                                FROM order_materials om
-                                         JOIN materials m ON om.material_id = m.id
-                                WHERE om.order_id = $1
-                                ORDER BY m.name
-                                """, order_id)
-        return [dict(row) for row in rows]
-
-
-async def add_order_material(order_id: int, material_id: int, quantity: float) -> bool:
-    """Buyurtmaga material qo'shadi va narxni o'zi hisoblaydi."""
-    try:
-        async with pool.acquire() as conn:
-            unit_cost = await conn.fetchval("SELECT unit_cost FROM materials WHERE id = $1", material_id)
-            if unit_cost is None: return False
-            total_cost = quantity * float(unit_cost)
-            
-            # 1. Buyurtmaga qo'shish
-            await conn.execute(
-                "INSERT INTO order_materials (order_id, material_id, quantity, cost) VALUES ($1, $2, $3, $4)",
-                order_id, material_id, quantity, total_cost)
-            
-            # 2. Ombordan ayirish
-            await conn.execute(
-                "UPDATE materials SET quantity = quantity - $1 WHERE id = $2",
-                quantity, material_id
-            )
-        return True
-    except Exception as e:
-        logging.error(f"Buyurtmaga material qo'shishda xato: {e}")
-        return False
-
-
-async def delete_order_material(entry_id: int) -> bool:
-    async with pool.acquire() as conn:
-        result = await conn.execute("DELETE FROM order_materials WHERE id = $1", entry_id)
-        return "DELETE 1" in result
-
-
 # --- Order Labor ---
-async def get_order_labor(order_id: int) -> List[dict]:
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-                                SELECT ol.id, w.full_name, ol.hours_worked, ol.cost, ol.description, ol.added_date
-                                FROM order_labor ol
-                                         JOIN workers w ON ol.worker_id = w.id
-                                WHERE ol.order_id = $1
-                                ORDER BY ol.added_date DESC
-                                """, order_id)
-        return [dict(row) for row in rows]
-
-
-async def add_order_labor(order_id: int, worker_id: int, hours_worked: float, cost: float, description: str) -> bool:
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO order_labor (order_id, worker_id, hours_worked, cost, description) VALUES ($1, $2, $3, $4, $5)",
-                order_id, worker_id, hours_worked, cost, description)
-        return True
-    except Exception as e:
-        logging.error(f"Buyurtmaga ish qo'shishda xatolik: {e}")
-        return False
-
-
-async def delete_order_labor(entry_id: int) -> bool:
-    async with pool.acquire() as conn:
-        result = await conn.execute("DELETE FROM order_labor WHERE id = $1", entry_id)
-        return "DELETE 1" in result
-
-
 # --- Hisob-kitoblar uchun ---
-async def get_order_costs(order_id: int) -> dict:
-    """Buyurtma bo'yicha jami material va ish haqi xarajatlarini hisoblaydi."""
-    async with pool.acquire() as conn:
-        material_cost = await conn.fetchval("SELECT COALESCE(SUM(cost), 0) FROM order_materials WHERE order_id = $1",
-                                            order_id)
-        labor_cost = await conn.fetchval("SELECT COALESCE(SUM(cost), 0) FROM order_labor WHERE order_id = $1", order_id)
-        return {
-            "material_cost": material_cost or 0,
-            "labor_cost": labor_cost or 0,
-            "total_expenses": (material_cost or 0) + (labor_cost or 0)
-        }
-
-
-async def update_order_material_quantity(entry_id: int, new_quantity: float) -> bool:
-    """Buyurtmaga qo'shilgan materialning miqdorini yangilaydi va narxini qayta hisoblaydi."""
-    try:
-        async with pool.acquire() as conn:
-            res = await conn.fetchrow("""
-                                      SELECT om.material_id, m.unit_cost
-                                      FROM order_materials om
-                                               JOIN materials m ON m.id = om.material_id
-                                      WHERE om.id = $1
-                                      """, entry_id)
-            if not res: return False
-            unit_cost = res['unit_cost']
-            new_total_cost = new_quantity * float(unit_cost)
-            await conn.execute(
-                "UPDATE order_materials SET quantity = $1, cost = $2 WHERE id = $3",
-                new_quantity, new_total_cost, entry_id)
-        return True
-    except Exception as e:
-        logging.error(f"Material miqdorini yangilashda xato: {e}")
-        return False
-
-
-async def is_material_in_use(material_id: int) -> list | bool:
-    """Materialning birorta buyurtmada ishlatilganligini tekshiradi."""
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-                                SELECT o.order_name
-                                FROM order_materials om
-                                         JOIN orders o ON om.order_id = o.id
-                                WHERE om.material_id = $1 LIMIT 5;
-                                """, material_id)
-        return [row['order_name'] for row in rows] if rows else False
-
-
 # --- order_assignments jadvali uchun funksiyalar ---
-async def assign_worker_to_order(order_id: int, worker_id: int) -> bool:
-    """Xodimni buyurtmaga biriktiradi."""
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO order_assignments (order_id, worker_id) VALUES ($1, $2)",
-                order_id, worker_id)
-        return True
-    except asyncpg.UniqueViolationError:
-        return True
-    except Exception as e:
-        logging.error(f"Xodimni buyurtmaga biriktirishda xato: {e}")
-        return False
-
-
-async def unassign_worker_from_order(order_id: int, worker_id: int) -> bool:
-    """Xodimni buyurtmadan olib tashlaydi."""
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "DELETE FROM order_assignments WHERE order_id = $1 AND worker_id = $2",
-                order_id, worker_id)
-        return True
-    except Exception as e:
-        logging.error(f"Xodimni buyurtmadan olib tashlashda xato: {e}")
-        return False
-
-
-async def get_assigned_workers_for_order(order_id: int) -> List[dict]:
-    """Buyurtmaga biriktirilgan barcha xodimlarni qaytaradi."""
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-                                SELECT w.id, w.full_name
-                                FROM order_assignments oa
-                                         JOIN workers w ON oa.worker_id = w.id
-                                WHERE oa.order_id = $1
-                                ORDER BY w.full_name;
-                                """, order_id)
-        return [dict(row) for row in rows]
-
-
 # --- Moliyaviy hisobotlar uchun funksiyalar ---
 async def get_financial_years() -> List[int]:
     async with pool.acquire() as conn:
@@ -1552,20 +1218,6 @@ async def get_monthly_financial_summary(year: int, month: int) -> dict:
     return {'total_income': total_income or 0, 'total_expenses': total_expenses or 0, 'net_profit': net_profit}
 
 
-async def get_top_profit_order() -> dict | None:
-    query = """
-            SELECT o.id, o.order_name, (o.total_cost - COALESCE(SUM(om.cost), 0)) AS net_profit
-            FROM orders o \
-                     LEFT JOIN order_materials om ON o.id = om.order_id
-            WHERE o.status = 'Bajarildi'
-            GROUP BY o.id, o.order_name, o.total_cost \
-            ORDER BY net_profit DESC LIMIT 1;
-            """
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(query)
-        return dict(row) if row else None
-
-
 # --- Pagination uchun yordamchi funksiyalar ---
 async def get_salary_year_count() -> int:
     async with pool.acquire() as conn:
@@ -1587,59 +1239,6 @@ async def get_stat_worker_count_for_month(month: str) -> int:
 
 
 # --- "Aqlli Qidiruv" uchun YANGI funksiya ---
-async def search_materials(query: str, limit: int = 20) -> List[dict]:
-    """Materiallarni nomi, birligi va kategoriyasi bo'yicha o'xshashlik (similarity) asosida qidiradi."""
-    search_query_like = f"%{query}%"
-
-    async with pool.acquire() as conn:
-        # Endi biz ILIKE (aniq moslik) bilan birga SIMILARITY (o'xshashlik) ni ham tekshiramiz.
-        # similarity > 0.3 degani - so'rovga kamida 30% o'xshash bo'lsa ham natijaga qo'sh degani.
-        rows = await conn.fetch("""
-                                SELECT m.*, c.name AS category_name, similarity(m.name, $2) AS sml
-                                FROM materials m
-                                         LEFT JOIN material_categories c ON m.category_id = c.id
-                                WHERE m.name ILIKE $1
-                                   OR
-                                    c.name ILIKE $1
-                                   OR
-                                    similarity(m.name
-                                    , $2)
-                                    > 0.3
-                                   OR
-                                    similarity(c.name
-                                    , $2)
-                                    > 0.3
-                                ORDER BY sml DESC
-                                    LIMIT $3
-                                """, search_query_like, query, limit)
-        return [dict(row) for row in rows]
-
-
-async def get_material_category_by_id(category_id: int) -> Optional[dict]:
-    """Berilgan ID bo'yicha yagona kategoriyani topib qaytaradi."""
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM material_categories WHERE id = $1", category_id)
-        return dict(row) if row else None
-
-
-async def update_material_category(category_id: int, **kwargs) -> bool:
-    """Kategoriyaning ma'lumotlarini (masalan, nomini) yangilaydi."""
-    if not kwargs: return False
-    set_clause = ", ".join([f"{k} = ${i + 2}" for i, k in enumerate(kwargs.keys())])
-    values = [category_id] + list(kwargs.values())
-    query = f"UPDATE material_categories SET {set_clause} WHERE id = $1"
-    async with pool.acquire() as conn:
-        result = await conn.execute(query, *values)
-        return "UPDATE 1" in result
-
-
-async def delete_material_category(category_id: int) -> bool:
-    """Berilgan ID bo'yicha kategoriyani o'chiradi."""
-    async with pool.acquire() as conn:
-        result = await conn.execute("DELETE FROM material_categories WHERE id = $1", category_id)
-        return "DELETE 1" in result
-
-
 async def get_session_for_worker_on_date(worker_id: int, target_date: date) -> Optional[dict]:
     """Belgilangan xodim uchun aniq bir sanadagi ish sessiyasini topib qaytaradi."""
     async with pool.acquire() as conn:
@@ -1765,21 +1364,7 @@ async def get_late_employees(check_date: date, threshold_time: datetime.time) ->
                     "branch_name": row['branch_name'],
                     "status": status
                 })
-        if worker_id:
-            rows = await conn.fetch("""
-                SELECT * FROM ai_chat_sessions 
-                WHERE worker_id = $1 
-                ORDER BY updated_at DESC
-            """, worker_id)
-        else:
-            # Web admin uchun (yoki barchasi)
-            # Hozircha oddiylik uchun worker_id IS NULL ni olamiz (Web Admin)
-            rows = await conn.fetch("""
-                SELECT * FROM ai_chat_sessions 
-                WHERE worker_id IS NULL 
-                ORDER BY updated_at DESC
-            """)
-        return [dict(row) for row in rows]
+        return late_employees
 
 async def create_chat_session(worker_id: Optional[int], title: str) -> int:
     """Yangi sessiya yaratadi."""

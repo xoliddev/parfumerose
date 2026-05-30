@@ -1,5 +1,5 @@
-# Dockerfile.bot - Telegram Bot uchun
-# Render.com da Background Worker sifatida ishga tushadi
+# Dockerfile - Telegram Bot (parfumerose)
+# Render.com / docker-compose orqali ishga tushadi
 
 FROM python:3.11-slim
 

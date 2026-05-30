@@ -1,149 +1,73 @@
-![Build](https://github.com/koyeb/koyeb-cli/workflows/Release/badge.svg)
+# Parfumerose — Xodimlar davomati va maosh boti
 
-# Koyeb CLI
+Telegram bot (aiogram 2.x) — xodimlarning **ish davomatini** (geolokatsiya orqali ishga
+kelish/ketish), **maoshlarini**, **ish soatlarini** va **hisobotlarini** boshqaradi.
+Bir nechta **filial** (branch) va rol darajalarini (xodim, filial admini, katta admin)
+qo'llab-quvvatlaydi. Adminlar uchun **AI yordamchi** (Gemini + Azure ovozdan-matnga) mavjud.
 
-The Koyeb CLI (Command Line Interface) is a powerful tool to manage your Koyeb serverless infrastructure directly from your terminal.
+## Asosiy imkoniyatlar
 
-## Installation
+- 🟢 **Davomat:** geolokatsiya bilan ishga kelish/ketish, ruxsat etilgan radius tekshiruvi
+- 💰 **Maosh:** oylik maosh, to'lovlar tarixi, yakuniy hisob-kitob
+- 📊 **Hisobotlar:** kunlik/oylik, kech qolganlar, ishda bo'lmaganlar
+- ⏰ **Avtomatik eslatmalar:** ertalabki/kechki brifing, kech qolish va kelmaganlik eslatmalari (APScheduler)
+- 🏢 **Ko'p filial:** har bir filialning o'z admini, lokatsiyasi va guruhi
+- 🤖 **AI yordamchi (adminlar uchun):** tabiiy til va ovozli so'rovlar bilan ma'lumot olish
 
-### Download from GitHub
+## Texnologiyalar
 
-The CLI can be installed from pre-compiled binaries for macOS (darwin), Linux and Windows. You can download the appropriate version from the [Releases](https://github.com/koyeb/koyeb-cli/releases) page.
+- **aiogram 2.25** — Telegram bot framework
+- **asyncpg + PostgreSQL** — ma'lumotlar bazasi (Neon pooler bilan mos)
+- **Redis** (ixtiyoriy) — FSM holatlari uchun (yo'q bo'lsa MemoryStorage)
+- **APScheduler** — rejalashtirilgan vazifalar
+- **google-generativeai (Gemini)** + **Azure Speech** — AI va ovozdan-matnga
 
-### MacOS
+## Ishga tushirish (lokal)
 
-You can install the latest version of the Koyeb CLI on macOS using [Homebrew](http://brew.sh/):
-
-```shell
-brew install koyeb/tap/koyeb
+```bash
+pip install -r requirements.txt
+cp .env.example .env.local      # qiymatlarni to'ldiring
+APP_ENV=local python bot.py
 ```
 
-You can upgrade an existing installation of the Koyeb CLI running:
+## Docker
 
-```
-brew upgrade koyeb
-```
-
-### Living at the Edge
-
-To install the latest `koyeb` binary with go, simply run:
-
-```shell
-go get github.com/koyeb/koyeb-cli/cmd/koyeb
-go install github.com/koyeb/koyeb-cli/cmd/koyeb
+```bash
+docker compose up --build
 ```
 
-If you need a go environment, follow the [official Go installation documentation](https://golang.org/doc/install).
+## Muhit o'zgaruvchilari
 
+Asosiylari (to'liq ro'yxat `.env.example`da):
 
-## Getting started
+| O'zgaruvchi | Tavsif |
+|---|---|
+| `BOT_TOKEN` | BotFather'dan olingan token |
+| `DATABASE_URL` | PostgreSQL ulanish satri |
+| `SUPERADMINS` | Katta adminlar tg_id'lari (vergul bilan) |
+| `BRANCH_1_*`, `BRANCH_2_*` | Filial sozlamalari (nom, lat/lon, radius, adminlar) |
+| `REDIS_URL` | (ixtiyoriy) FSM uchun Redis |
+| `GEMINI_API_KEYS` | AI yordamchi uchun Gemini kalitlari |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Ovozdan-matnga |
 
-### Initial configuration
+## Deploy
 
-Generate an API token and run `koyeb login` to create a new configuration file.
+`render.yaml` — Render.com blueprint: bot (Docker web-service) + PostgreSQL + Redis.
+Sirlar (`BOT_TOKEN`, `GEMINI_API_KEYS`, ...) Render dashboard'da `sync: false` orqali
+qo'lda kiritiladi — repozitoriyga yozilmaydi.
 
-```shell
-➜ koyeb login
-? Do you want to create a new configuration file in (/Users/kbot/.koyeb.yaml)? [y/N]
-✗ Enter your personal access token. You can create a new token here (https://app.koyeb.com/user/settings/api/): *************
-INFO[0006] Creating new configuration in /Users/kbot/.koyeb.yaml
+## Loyiha tuzilishi
+
 ```
-
-### General usage
-
-```shell
-➜ koyeb --help
-Koyeb CLI
-
-Usage:
-  koyeb [command]
-
-Available Commands:
-  apps                 Apps
-  archives             Archives
-  completion           Generate completion script
-  databases            Databases
-  deploy               Deploy a directory to Koyeb
-  deployments          Deployments
-  domains              Domains
-  help                 Help about any command
-  instances            Instances
-  login                Login to your Koyeb account
-  metrics              Metrics
-  organizations        Organization
-  regional-deployments Regional deployments
-  secrets              Secrets
-  services             Services
-  version              Get version
-  volumes              Manage persistent volumes
-
-Flags:
-  -c, --config string         config file (default is $HOME/.koyeb.yaml)
-  -d, --debug                 enable the debug output
-      --debug-full            do not hide sensitive information (tokens) in the debug output
-      --force-ascii           only output ascii characters (no unicode emojis)
-      --full                  do not truncate output
-  -h, --help                  help for koyeb
-      --organization string   organization ID
-  -o, --output output         output format (yaml,json,table)
-      --token string          API token
-      --url string            url of the api (default "https://app.koyeb.com")
-
-Use "koyeb [command] --help" for more information about a command.
+bot.py                 — kirish nuqtasi, scheduler, startup/shutdown
+loader.py              — Bot/Dispatcher/storage
+config.py              — muhit o'zgaruvchilari va filial konfiguratsiyasi
+database.py            — asyncpg pool, sxema (init_db), barcha DB funksiyalari
+ai_helpers.py          — Gemini AI yordamchi + Azure ovozdan-matnga
+shared.py / keyboards.py / states.py / menu_overrides.py / employee_menu.py
+handlers/
+  user_handlers.py     — xodim oqimi (start, davomat, statistika)
+  admin_handlers.py    — admin oqimi (xodimlar, maosh, hisobot, AI)
+  admin_extensions.py  — admin yordamchi amallar
+  admin_tools.py       — AI uchun "asbob" funksiyalari
 ```
-
-
-### Enabling shell auto-completion
-
-`koyeb` has auto-completion support for `bash`, `zsh` and `fish`.
-
-#### Bash
-
-You can easily do `source <(koyeb completion bash)` to add completion to your current Bash session.
-
-To load completions for all sessions, simply add the auto-completion script to your `bash_completion.d` folder.
-
-On Linux:
-
-```shell
-koyeb completion bash > /etc/bash_completion.d/koyeb
-```
-
-On MacOs:
-
-```shell
-koyeb completion bash > /usr/local/etc/bash_completion.d/koyeb
-```
-
-You will need to start a new shell for this setup to take effect.
-
-#### Zsh
-
-If shell completion is not already enabled in your environment you will need to enable it.  You can execute the following once:
-
-```shell
-echo "autoload -U compinit; compinit" >> ~/.zshrc
-```
-
-To automatically load completions for all your shell session, execute once:
-
-```shell
-koyeb completion zsh > "${fpath[1]}/_koyeb"
-```
-
-You will need to start a new shell for this setup to take effect.
-
-#### Fish
-
-You can easily run `koyeb completion fish | source` to add completions to your current Fish session.
-
-To automatically load completions for all your shell session, execute once:
-
-```shell
-koyeb completion fish > ~/.config/fish/completions/koyeb.fish
-```
-
-## Contribute
-
-Checkout [CONTRIBUTING.md](CONTRIBUTING.md)
-
