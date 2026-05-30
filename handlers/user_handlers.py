@@ -195,7 +195,7 @@ async def render_employee_menu(chat_id: int, user_id: int, preferred_message_id:
 
 def _build_live_location_prompt_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("⬅️ Menyuga qaytish", callback_data="empmenu:home"))
+    kb.add(types.InlineKeyboardButton("⬅️ Menyuga qaytish", callback_data="empmenu:home", style="primary"))
     return kb
 
 
@@ -214,8 +214,8 @@ def _build_live_location_prompt_text(is_departure: bool) -> str:
 
 def _build_location_issue_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("📍 Lokatsiyani qayta yuborish", callback_data="empmenu:clock"))
-    kb.add(types.InlineKeyboardButton("⬅️ Menyuga qaytish", callback_data="empmenu:home"))
+    kb.add(types.InlineKeyboardButton("📍 Lokatsiyani qayta yuborish", callback_data="empmenu:clock", style="primary"))
+    kb.add(types.InlineKeyboardButton("⬅️ Menyuga qaytish", callback_data="empmenu:home", style="primary"))
     return kb
 
 
@@ -338,8 +338,8 @@ async def request_join_name(message: types.Message, state: FSMContext):
 
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
-        types.InlineKeyboardButton("Qabul qilish", callback_data=f"pending_accept_{u.id}"),
-        types.InlineKeyboardButton("Rad etish", callback_data=f"pending_reject_{u.id}")
+        types.InlineKeyboardButton("Qabul qilish", callback_data=f"pending_accept_{u.id}", style="success"),
+        types.InlineKeyboardButton("Rad etish", callback_data=f"pending_reject_{u.id}", style="danger")
     )
     sent_messages = await notify_selected_admins(
         SUPERADMINS,
@@ -429,7 +429,7 @@ async def absence_review_callback(callback_query: types.CallbackQuery):
 
 def _build_employee_back_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="empmenu:home"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="empmenu:home", style="primary"))
     return kb
 
 

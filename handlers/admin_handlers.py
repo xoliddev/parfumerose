@@ -54,7 +54,7 @@ tashkent_tz = pytz.timezone('Asia/Tashkent')
 
 def _build_web_removed_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("Orqaga", callback_data="admin_extra"))
+    kb.add(InlineKeyboardButton("Orqaga", callback_data="admin_extra", style="primary"))
     return kb
 
 
@@ -259,9 +259,10 @@ def _build_worker_branch_picker_keyboard(
             InlineKeyboardButton(
                 f"{prefix}{branch['name']}",
                 callback_data=f"moveworkerto:{worker_id}:{branch['id']}",
+                style="primary",
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data=f"worker_{worker_id}"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data=f"worker_{worker_id}", style="primary"))
     return kb
 
 
@@ -271,14 +272,17 @@ def _build_worker_branch_apply_keyboard(worker_id: int, branch_id: int) -> Inlin
         InlineKeyboardButton(
             "Faqat bundan keyin",
             callback_data=f"moveworkerapply:{worker_id}:{branch_id}:future",
+            style="primary",
         ),
         InlineKeyboardButton(
             "Barcha eski yozuvlar bilan",
             callback_data=f"moveworkerapply:{worker_id}:{branch_id}:history",
+            style="success",
         ),
         InlineKeyboardButton(
             "⬅️ Filial tanlash",
             callback_data=f"moveworker:{worker_id}",
+            style="primary",
         ),
     )
     return kb
@@ -554,8 +558,8 @@ async def pending_menu(callback_query: types.CallbackQuery):
     user_id = callback_query.data.split("_")[1]
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
-        types.InlineKeyboardButton("Qabul qilish", callback_data=f"pending_accept_{user_id}"),
-        types.InlineKeyboardButton("Rad etish", callback_data=f"pending_reject_{user_id}")
+        types.InlineKeyboardButton("Qabul qilish", callback_data=f"pending_accept_{user_id}", style="success"),
+        types.InlineKeyboardButton("Rad etish", callback_data=f"pending_reject_{user_id}", style="danger")
     )
     await notify_selected_admins(SUPERADMINS, f"Pending ariza (ID: {user_id}) uchun amallar:", reply_markup=keyboard)
     await callback_query.answer()
@@ -1412,8 +1416,8 @@ async def worker_menu(callback_query: types.CallbackQuery):
     specs = await get_worker_action_button_specs(worker_id)
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.row(
-        types.InlineKeyboardButton("📋 Ko'rish", callback_data=f"view_{worker_id}"),
-        types.InlineKeyboardButton("✏️ Tahrirlash", callback_data=f"update_{worker_id}"),
+        types.InlineKeyboardButton("📋 Ko'rish", callback_data=f"view_{worker_id}", style="primary"),
+        types.InlineKeyboardButton("✏️ Tahrirlash", callback_data=f"update_{worker_id}", style="primary"),
     )
     if callback_query.from_user.id in SUPERADMINS:
         branch_button_text = "🏢 Filialni o'zgartirish"
@@ -1423,25 +1427,28 @@ async def worker_menu(callback_query: types.CallbackQuery):
             types.InlineKeyboardButton(
                 branch_button_text,
                 callback_data=f"moveworker:{worker_id}",
+                style="primary",
             )
         )
     keyboard.add(
-        types.InlineKeyboardButton("🗑 O'chirish", callback_data=f"delete_{worker_id}")
+        types.InlineKeyboardButton("🗑 O'chirish", callback_data=f"delete_{worker_id}", style="danger")
     )
     keyboard.row(
         types.InlineKeyboardButton(
             specs["work_label"],
             callback_data=f"wact:{specs['work_action']}:{worker_id}",
+            style=specs["work_style"],
         ),
-        types.InlineKeyboardButton("🌙 Dam", callback_data=f"wact:rest:{worker_id}"),
+        types.InlineKeyboardButton("🌙 Dam", callback_data=f"wact:rest:{worker_id}", style="danger"),
     )
     keyboard.add(
         types.InlineKeyboardButton(
             specs["study_label"],
             callback_data=f"wact:{specs['study_action']}:{worker_id}",
+            style=specs["study_style"],
         )
     )
-    keyboard.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_workers"))
+    keyboard.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_workers", style="primary"))
 
     await callback_query.message.edit_text(
         f"Xodim: {_format_worker_branch_label(worker)} (ID: {worker_id})\nAmalni tanlang:",
@@ -1568,8 +1575,8 @@ async def move_worker_branch_apply(callback_query: types.CallbackQuery):
 
     done_keyboard = InlineKeyboardMarkup(row_width=1)
     done_keyboard.add(
-        InlineKeyboardButton("⬅️ Xodim kartasi", callback_data=f"worker_{worker_id}"),
-        InlineKeyboardButton("⬅️ Xodimlar ro'yxati", callback_data="admin_workers"),
+        InlineKeyboardButton("⬅️ Xodim kartasi", callback_data=f"worker_{worker_id}", style="primary"),
+        InlineKeyboardButton("⬅️ Xodimlar ro'yxati", callback_data="admin_workers", style="primary"),
     )
     history_text = (
         "Barcha eski davomat va attendance yozuvlari ham shu filialga ko'chirildi."
@@ -3064,17 +3071,19 @@ async def _build_attendance_action_keyboard(worker_id: int, page: int) -> Inline
         InlineKeyboardButton(
             specs["work_label"],
             callback_data=f"wactatt:{specs['work_action']}:{worker_id}:{page}",
+            style=specs["work_style"],
         ),
-        InlineKeyboardButton("🌙 Dam", callback_data=f"wactatt:rest:{worker_id}:{page}"),
+        InlineKeyboardButton("🌙 Dam", callback_data=f"wactatt:rest:{worker_id}:{page}", style="danger"),
     )
     kb.add(
         InlineKeyboardButton(
             specs["study_label"],
             callback_data=f"wactatt:{specs['study_action']}:{worker_id}:{page}",
+            style=specs["study_style"],
         )
     )
     kb.add(
-        InlineKeyboardButton("⬅️ Orqaga", callback_data=f"attendance_workers:{page}")
+        InlineKeyboardButton("⬅️ Orqaga", callback_data=f"attendance_workers:{page}", style="primary")
     )
     return kb
 
@@ -3248,6 +3257,12 @@ async def attendance_quick_pick_worker(message: types.Message, state: FSMContext
         )
         return
 
+    selection_style = "primary"
+    if action in {"in", "study_return"}:
+        selection_style = "success"
+    elif action in {"out", "rest"}:
+        selection_style = "danger"
+
     kb = InlineKeyboardMarkup(row_width=1)
     for worker in candidates:
         phone_status = "📱" if worker.get("has_phone") else "📴"
@@ -3255,9 +3270,10 @@ async def attendance_quick_pick_worker(message: types.Message, state: FSMContext
             InlineKeyboardButton(
                 f"{phone_status} {_format_worker_branch_label(worker)} (ID:{worker['id']})",
                 callback_data=f"aiatt:{action}:{worker['id']}",
+                style=selection_style,
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
 
     await _cleanup_admin_input_message(message)
     await state.finish()
@@ -3310,8 +3326,8 @@ async def manual_attendance_get_date(callback_query: types.CallbackQuery, state:
     today_str = datetime.date.today().strftime("%Y-%m-%d")
     date_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     date_kb.row(
-        types.KeyboardButton("Bugun uchun"),
-        types.KeyboardButton("Bekor qilish"),
+        types.KeyboardButton("Bugun uchun", style="success"),
+        types.KeyboardButton("Bekor qilish", style="danger"),
     )
     await callback_query.message.edit_text("Xodim tanlandi. Sana kiritish oynasi ochildi.")
     worker_prompt_label = worker.get("full_name") if worker else str(worker_id)
@@ -3347,8 +3363,8 @@ async def manual_attendance_get_arrival(message: types.Message, state: FSMContex
         except ValueError:
             date_kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
             date_kb.row(
-                types.KeyboardButton("Bugun uchun"),
-                types.KeyboardButton("Bekor qilish"),
+                types.KeyboardButton("Bugun uchun", style="success"),
+                types.KeyboardButton("Bekor qilish", style="danger"),
             )
             await message.reply(
                 "Sana formati noto'g'ri. Iltimos, YYYY-MM-DD formatida kiriting yoki tugmadan foydalaning.",
@@ -3487,13 +3503,13 @@ def _build_quick_attendance_prompt_text(action: str) -> str:
 
 def _build_quick_attendance_prompt_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
     return kb
 
 
 def _build_quick_attendance_done_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("⬅️ Admin menyusi", callback_data="back_admin_main"))
+    kb.add(InlineKeyboardButton("⬅️ Admin menyusi", callback_data="back_admin_main", style="primary"))
     return kb
 
 
@@ -3597,6 +3613,12 @@ async def _try_handle_ai_attendance_command(
         )
         return True
 
+    selection_style = "primary"
+    if action in {"in", "study_return"}:
+        selection_style = "success"
+    elif action in {"out", "rest"}:
+        selection_style = "danger"
+
     kb = InlineKeyboardMarkup(row_width=1)
     for worker in candidates:
         phone_status = "📱" if worker.get("has_phone") else "📴"
@@ -3604,9 +3626,10 @@ async def _try_handle_ai_attendance_command(
             InlineKeyboardButton(
                 f"{phone_status} {_format_worker_branch_label(worker)} (ID:{worker['id']})",
                 callback_data=f"aiatt:{action}:{worker['id']}",
+                style=selection_style,
             )
         )
-    kb.add(InlineKeyboardButton("❌ Bekor qilish", callback_data="aiatt:cancel"))
+    kb.add(InlineKeyboardButton("❌ Bekor qilish", callback_data="aiatt:cancel", style="danger"))
 
     await processing_message.edit_text(
         f"🔎 Bir nechta o'xshash ism topildi.\nQaysi xodimni <b>{action_title}</b> deb belgilaymiz?",
@@ -3710,7 +3733,7 @@ async def _render_superadmin_list(
         lines.extend(["", "Config bilan qo'shilgan katta adminlarni bot ichidan o'chirib bo'lmaydi."])
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("➕ Katta admin qo'shish", callback_data="superadmins:add"))
+    kb.add(InlineKeyboardButton("➕ Katta admin qo'shish", callback_data="superadmins:add", style="success"))
     for row in admins:
         if row.get("source") != "manual":
             continue
@@ -3718,9 +3741,10 @@ async def _render_superadmin_list(
             InlineKeyboardButton(
                 f"🗑 {_format_branch_admin_display(row)}",
                 callback_data=f"superadmins:askremove:{row['tg_id']}",
+                style="danger",
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra", style="primary"))
 
     final_text = "\n".join(lines)
     if message_obj is not None:
@@ -3815,8 +3839,9 @@ async def superadmins_add_finish(message: types.Message, state: FSMContext):
         InlineKeyboardButton(
             "✅ Tasdiqlash",
             callback_data=f"superadmins:confirmadd:{tg_id}",
+            style="success",
         ),
-        InlineKeyboardButton("⬅️ Orqaga", callback_data="superadmins:menu"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="superadmins:menu", style="primary"),
     )
     await state.finish()
     await message.reply(
@@ -3891,8 +3916,9 @@ async def superadmins_ask_remove(callback_query: types.CallbackQuery):
         InlineKeyboardButton(
             "🗑 Ha, olib tashlash",
             callback_data=f"superadmins:remove:{tg_id}",
+            style="danger",
         ),
-        InlineKeyboardButton("⬅️ Orqaga", callback_data="superadmins:menu"),
+        InlineKeyboardButton("⬅️ Orqaga", callback_data="superadmins:menu", style="primary"),
     )
     await callback_query.message.edit_text(
         f"Haqiqatan ham {_format_branch_admin_display(admin_row)} ni katta admindan olamizmi?\n"
@@ -3962,7 +3988,7 @@ async def _render_branch_admin_branch_view(
             )
 
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("➕ Admin qo'shish", callback_data=f"branch_admins:add:{branch_id}"))
+    kb.add(InlineKeyboardButton("➕ Admin qo'shish", callback_data=f"branch_admins:add:{branch_id}", style="success"))
     for row in admins:
         delete_label = f"🗑 {_format_branch_admin_display(row)}"
         if row.get("source") == "config":
@@ -3971,9 +3997,10 @@ async def _render_branch_admin_branch_view(
             InlineKeyboardButton(
                 delete_label,
                 callback_data=f"branch_admins:remove:{branch_id}:{row['tg_id']}",
+                style="danger",
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Filiallar", callback_data="branch_admins:menu"))
+    kb.add(InlineKeyboardButton("⬅️ Filiallar", callback_data="branch_admins:menu", style="primary"))
 
     final_text = "\n".join(lines)
     if message_obj is not None:
@@ -4006,9 +4033,10 @@ async def branch_admins_menu(callback_query: types.CallbackQuery):
             InlineKeyboardButton(
                 f"{branch['name']} ({count} admin)",
                 callback_data=f"branch_admins:view:{branch['id']}",
+                style="primary",
             )
         )
-    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra"))
+    kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra", style="primary"))
 
     await callback_query.message.edit_text(
         "Qaysi filial adminlarini boshqarmoqchisiz?",

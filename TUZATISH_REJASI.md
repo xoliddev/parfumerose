@@ -77,7 +77,7 @@ import qilinmagan, butunlay o'lik. Parfyumeriya HR-boti uchun keraksiz (mebel qo
 
 ## 🟢 FAZA 4 — Kod sifati
 
-- [x] ✅ **4.1** Barcha `style="primary|success|danger"` kwarg'larini olib tashlash (`menu_overrides.py`, `employee_menu.py`, `shared.py`) — Telegram API'da yo'q parametr.
+- [x] ↩️ **4.1 QAYTARILDI (XATO edi).** `style=` kwarg'larini olib tashlagan edim ("Telegram'da yo'q" deb taxmin qilib) — lekin ular foydalanuvchi sozlamasida tugmalarni **rangli** qiladi. Barcha `style=` tiklandi: `menu_overrides.py`(13), `employee_menu.py`(7), `shared.py`(7), `admin_handlers.py`(44), `admin_extensions.py`(4), `user_handlers.py`(6) + `selection_style` ta'rifi tiklandi. **Saboq: tasdiqlanmagan taxmin asosida ishlaydigan narsani o'chirmaslik.**
 - [x] ✅ **4.2** Ishlatilmagan importlarni tozalash (pyflakes ro'yxati bo'yicha barcha fayllar); `admin_handlers.py`dagi dublikat `import html` va soyalangan importlarni tuzatish.
 - [x] ✅ **4.3** Dublikat funksiyalarni birlashtirish: `_prepare_text_for_ai` (ai_helpers + admin_handlers).
 - [ ] **4.4** *(IXTIYORIY — keyinga qoldirildi; AI ishlayapti, bu yaxshilanish, bug emas)* (Ixtiyoriy) `ai_helpers.py`da hardcoded `models/gemini-2.5-flash` o'rniga `GEMINI_FREE_MODELS` konfigi va model-fallback'ni qo'shish.

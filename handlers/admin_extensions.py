@@ -194,17 +194,19 @@ async def build_worker_action_keyboard(worker_id: int, back_callback: str) -> ty
         types.InlineKeyboardButton(
             specs["work_label"],
             callback_data=f"wact:{specs['work_action']}:{worker_id}",
+            style=specs["work_style"],
         ),
-        types.InlineKeyboardButton("🌙 Dam", callback_data=f"wact:rest:{worker_id}"),
+        types.InlineKeyboardButton("🌙 Dam", callback_data=f"wact:rest:{worker_id}", style="danger"),
     )
     kb.add(
         types.InlineKeyboardButton(
             specs["study_label"],
             callback_data=f"wact:{specs['study_action']}:{worker_id}",
+            style=specs["study_style"],
         )
     )
     kb.add(
-        types.InlineKeyboardButton("⬅️ Orqaga", callback_data=back_callback),
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data=back_callback, style="primary"),
     )
     return kb
 
