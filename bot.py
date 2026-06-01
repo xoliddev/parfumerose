@@ -14,6 +14,14 @@ from apscheduler.triggers.cron import CronTrigger
 
 # Asosiy bot va dispatcher obyektlarini `loader`dan olamiz
 from loader import dp, bot
+from aiogram.utils.exceptions import (
+    MessageNotModified,
+    MessageToEditNotFound,
+    MessageCantBeEdited,
+    MessageToDeleteNotFound,
+    MessageTextIsEmpty,
+    InvalidQueryID,
+)
 
 # Ma'lumotlar bazasi bilan ishlash uchun kerakli funksiyalar
 import database as db
@@ -35,6 +43,45 @@ logging.basicConfig(level=logging.INFO)
 
 # AsyncIOScheduler nusxasini yaratamiz, vaqt zonasi - Toshkent
 scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
+
+
+# ===== Global xato-ushlagich =====
+# Handlerdagi har qanday kutilmagan xato butun amalni "muzlatib" qo'ymasligi uchun.
+# "Yumshoq" Telegram xatolarini (xabar o'zgarmadi, tahrirlab bo'lmadi, callback eskirdi)
+# jimgina e'tiborsiz qoldiramiz; qolganini log qilamiz va callback'ni yopamiz
+# (foydalanuvchida "yuklanyapti" belgisi osilib qolmasin).
+_SILENT_TELEGRAM_ERRORS = (
+    MessageNotModified,
+    MessageToEditNotFound,
+    MessageCantBeEdited,
+    MessageToDeleteNotFound,
+    MessageTextIsEmpty,
+    InvalidQueryID,
+)
+
+
+@dp.errors_handler()
+async def global_error_handler(update, exception):
+    callback_query = getattr(update, "callback_query", None)
+
+    if isinstance(exception, _SILENT_TELEGRAM_ERRORS):
+        if callback_query:
+            try:
+                await callback_query.answer()
+            except Exception:
+                pass
+        return True  # ushlandi — polling davom etadi
+
+    logging.exception("Handler xatosi (global ushlagich): %s", exception)
+    if callback_query:
+        try:
+            await callback_query.answer(
+                "Xatolik yuz berdi. Iltimos qayta urinib ko'ring.",
+                show_alert=False,
+            )
+        except Exception:
+            pass
+    return True
 
 
 async def send_morning_briefings():
