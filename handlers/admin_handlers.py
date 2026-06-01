@@ -17,7 +17,7 @@ import database as db
 from states import (
     AdminAcceptPending, AdminUpdateWorker, AdminSetSalary, AdminAddSalaryPayment, AdminModifyPayment,
     AdminModifyMonthlySalary, AdminSetDailyHours, AdminSetWorkTime, AdminManualAttendance, AdminQuickAttendance, AdminBranchAdminSettings,
-    AdminSuperadminSettings
+    AdminSuperadminSettings, AdminContact
 )
 from shared import (
     build_branch_selection_keyboard,
@@ -351,6 +351,105 @@ async def _ensure_admin_operating_scope_message(
 
 async def _get_admin_branch_scope(admin_tg_id: int) -> list[int] | None:
     return await db.get_admin_branch_ids(admin_tg_id)
+
+
+# ===== Admin aloqasi (xodimlar murojaat qiladigan lichka/username) =====
+def _build_admin_contact_keyboard(has_contact: bool) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(
+        "✏️ O'zgartirish" if has_contact else "➕ Kiritish",
+        callback_data="admin_contact:set",
+        style="primary",
+    ))
+    if has_contact:
+        kb.add(types.InlineKeyboardButton("🗑 O'chirish", callback_data="admin_contact:delete", style="danger"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
+    return kb
+
+
+async def _admin_contact_text() -> str:
+    contact = await db.get_admin_contact()
+    if contact:
+        return (
+            "📞 <b>Admin aloqasi</b>\n\n"
+            f"Joriy aloqa: {html.escape(contact)}\n\n"
+            "Xodimlar «🆘 Yordam» bo'limida shu manzilni ko'radi."
+        )
+    return (
+        "📞 <b>Admin aloqasi</b>\n\n"
+        "Hozircha aloqa kiritilmagan.\n\n"
+        "«➕ Kiritish» orqali username (masalan, @admin) yoki t.me havola qo'shing — "
+        "xodimlar yordam so'raganda shu ko'rsatiladi."
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data == "admin_contact:menu", state="*")
+async def admin_contact_menu(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    await state.finish()
+    contact = await db.get_admin_contact()
+    await safe_edit_text(
+        callback_query.message,
+        await _admin_contact_text(),
+        reply_markup=_build_admin_contact_keyboard(bool(contact)),
+        parse_mode="HTML",
+    )
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data == "admin_contact:set", state="*")
+async def admin_contact_set_start(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    await safe_edit_text(
+        callback_query.message,
+        "Admin aloqasini yuboring:\n\n"
+        "Masalan: <code>@username</code>, <code>https://t.me/username</code> yoki telefon raqami.\n\n"
+        "Bekor qilish uchun /cancel yozing.",
+        parse_mode="HTML",
+    )
+    await AdminContact.waiting_for_contact.set()
+    await callback_query.answer()
+
+
+@dp.message_handler(state=AdminContact.waiting_for_contact, content_types=types.ContentTypes.TEXT)
+async def admin_contact_save(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMINS:
+        return
+    value = (message.text or "").strip()
+    if value.lower().lstrip("/") == "cancel":
+        await state.finish()
+        contact = await db.get_admin_contact()
+        return await message.answer(
+            await _admin_contact_text(),
+            reply_markup=_build_admin_contact_keyboard(bool(contact)),
+            parse_mode="HTML",
+        )
+    if len(value) < 3:
+        return await message.reply("Juda qisqa. To'g'ri username (@...) yoki havola yuboring.")
+    await db.set_admin_contact(value)
+    await state.finish()
+    await message.answer(
+        f"✅ Admin aloqasi saqlandi:\n{html.escape(value)}",
+        reply_markup=_build_admin_contact_keyboard(True),
+        parse_mode="HTML",
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data == "admin_contact:delete", state="*")
+async def admin_contact_delete(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    await state.finish()
+    await db.delete_admin_contact()
+    await safe_edit_text(
+        callback_query.message,
+        await _admin_contact_text(),
+        reply_markup=_build_admin_contact_keyboard(False),
+        parse_mode="HTML",
+    )
+    await callback_query.answer("O'chirildi.")
 
 
 @dp.callback_query_handler(lambda c: c.data == "superbranch:menu", state="*")

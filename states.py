@@ -105,3 +105,7 @@ class AdminBranchAdminSettings(StatesGroup):
 
 class AdminSuperadminSettings(StatesGroup):
     waiting_for_superadmin_tg_id = State()
+
+
+class AdminContact(StatesGroup):
+    waiting_for_contact = State()

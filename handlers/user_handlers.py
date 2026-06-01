@@ -1116,6 +1116,12 @@ async def worker_salary(message: types.Message):
 
     await message.reply(text)
 
+async def _admin_contact_display() -> str:
+    """Bot ichidan kiritilgan admin aloqasi; kiritilmagan bo'lsa config qiymati."""
+    contact = await db.get_admin_contact()
+    return contact or ADMIN_CONTACT_TEXT
+
+
 @dp.message_handler(commands=["help"], state="*")
 async def help_command_handler(message: types.Message, state: FSMContext):
     # Bu blokda baza bilan ishlanmaydi, o'zgarmaydi
@@ -1123,12 +1129,13 @@ async def help_command_handler(message: types.Message, state: FSMContext):
         await message.reply("Bu buyruq oddiy userlar uchun. Siz admin ekansiz.")
         return
 
+    contact = await _admin_contact_display()
     help_text = (
         "Assalomu alaykum, bu bot ish vaqtini kuzatish, kelish-ketish nazorati, "
         "kechikish sabablari va maosh to'lovlarini boshqarish kabi vazifalarni bajaradi.\n\n"
         "Agar botda biror muammo yoki qo‘shimcha taklif/talab bo‘lsa,"
         "admin(lar)ga murojaat qiling.\n\n"
-        "Admin bilan bog'lanish: " + ADMIN_CONTACT_TEXT
+        "Admin bilan bog'lanish: " + contact
     )
     await message.reply(help_text)
     await message.answer("Muammo yoki taklifingizni matn ko‘rinishida yozing. Bekor qilish uchun /cancel.")
@@ -1165,7 +1172,7 @@ async def process_help_feedback(message: types.Message, state: FSMContext):
         await notify_selected_admins(SUPERADMINS, to_admins)
 
     await message.reply(
-        f"Xabaringiz adminga yuborildi. Tez orada javob kuting.\n{ADMIN_CONTACT_TEXT}",
+        f"Xabaringiz adminga yuborildi. Tez orada javob kuting.\n{await _admin_contact_display()}",
         reply_markup=types.ReplyKeyboardRemove()
     )
     await state.finish()
@@ -1175,7 +1182,7 @@ async def process_help_feedback(message: types.Message, state: FSMContext):
 async def only_text_for_help(message: types.Message):
     # Bu blokda baza bilan ishlanmaydi, o'zgarmaydi
     await message.reply(
-        f"Iltimos, muammo yoki taklifingiz bo'lsa uni to'g'ri yozing, agar muammo bo'layotgan bo'lsa admin bilan bog'laning: {ADMIN_CONTACT_TEXT}. Bekor qilish uchun /cancel.")
+        f"Iltimos, muammo yoki taklifingiz bo'lsa uni to'g'ri yozing, agar muammo bo'layotgan bo'lsa admin bilan bog'laning: {await _admin_contact_display()}. Bekor qilish uchun /cancel.")
 
 
 @dp.message_handler(commands=['mystats'], state=None)

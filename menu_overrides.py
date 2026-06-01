@@ -22,6 +22,9 @@ def get_admin_main_menu(admin_tg_id: int | None = None) -> types.InlineKeyboardM
         types.InlineKeyboardButton("Davomat", callback_data="attendance_workers:0", style="success"),
         types.InlineKeyboardButton("Xodim qo'shish", callback_data="admin_add_worker", style="success"),
     )
+    kb.row(
+        types.InlineKeyboardButton("📞 Admin aloqasi", callback_data="admin_contact:menu", style="primary"),
+    )
     if admin_tg_id in SUPERADMINS:
         kb.row(
             types.InlineKeyboardButton("Filialni almashtirish", callback_data="superbranch:menu", style="primary"),

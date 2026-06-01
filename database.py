@@ -218,6 +218,8 @@ async def init_db():
                                );
                            """)
         await conn.execute("INSERT INTO settings(id, rest_day) VALUES (1, NULL) ON CONFLICT (id) DO NOTHING;")
+        # Adminga murojaat uchun aloqa (username yoki t.me havola) — bot ichidan boshqariladi
+        await conn.execute("ALTER TABLE settings ADD COLUMN IF NOT EXISTS admin_contact TEXT;")
 
         # 10. AI Chat Tables
         await conn.execute("""
@@ -360,6 +362,25 @@ async def get_rest_day() -> Optional[int]:
 async def set_rest_day(day_int: Optional[int]):
     async with pool.acquire() as conn:
         await conn.execute("UPDATE settings SET rest_day = $1 WHERE id = 1", day_int)
+
+
+async def get_admin_contact() -> Optional[str]:
+    """Adminga murojaat uchun saqlangan aloqa (username/havola)ni qaytaradi."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT admin_contact FROM settings WHERE id = 1")
+    value = (row["admin_contact"] if row else None) or ""
+    value = value.strip()
+    return value or None
+
+
+async def set_admin_contact(value: str) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE settings SET admin_contact = $1 WHERE id = 1", value.strip())
+
+
+async def delete_admin_contact() -> None:
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE settings SET admin_contact = NULL WHERE id = 1")
 
 
 async def get_active_employee_ids() -> List[int]:
