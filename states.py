@@ -4,7 +4,6 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 
 class UserAttendance(StatesGroup):
     waiting_for_location = State()
-    waiting_for_reason = State()
     waiting_for_message = State()
 
 

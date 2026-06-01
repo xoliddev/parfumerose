@@ -11,7 +11,7 @@ import html
 from ai_helpers import process_employee_request
 from employee_menu import get_employee_main_menu
 from loader import dp, bot
-from config import ADMINS, SUPERADMINS, ALLOWED_LAT, ALLOWED_LON, ALLOWED_RADIUS, LATE_EARLY_TOLERANCE_MIN, ADMIN_CONTACT_TEXT
+from config import ADMINS, SUPERADMINS, ALLOWED_LAT, ALLOWED_LON, LATE_EARLY_TOLERANCE_MIN, ADMIN_CONTACT_TEXT
 
 # --- TUZATISH: To'g'ri import usuli ---
 # Endi butun 'database' modulini 'db' nomi bilan chaqiramiz
@@ -45,14 +45,6 @@ ket_pattern = re.compile(r'(?i)[kк][eе][tт]')
 
 tashkent_tz = pytz.timezone('Asia/Tashkent')
 # -----------------------------------------------------------------
-# Quick-reason tugmalari (uzoqda bo‘lsa foydali)
-# Bu qism o'zgarmaydi
-# -----------------------------------------------------------------
-quick_reasons = [
-    ("Ustanovkada", "ustanovkada"),
-    ("Internet muammosi", "internet muammosi"),
-    ("Esimdan chiqdi", "esimdan chiqdi"),
-]
 
 
 # -------------- yordamchi funksiyalar (o'zgarmaydi) --------------------
@@ -234,7 +226,7 @@ def _build_location_issue_text(nearest_branch: dict | None) -> str:
         "3. 10-15 soniya kuting.",
         "4. Lokatsiyani qayta yuboring.",
         "",
-        "Agar ishxonada bo'lmasangiz, sababni matn qilib yozing.",
+        "Eslatma: davomat faqat ishxona hududidan turib belgilanadi.",
     ])
     return "\n".join(lines)
 
@@ -631,7 +623,7 @@ async def only_text_for_late(message: types.Message):
 
 
 # ===================== LOCATION ================================
-@dp.message_handler(state=[UserAttendance.waiting_for_location, UserAttendance.waiting_for_reason],
+@dp.message_handler(state=UserAttendance.waiting_for_location,
                     content_types=types.ContentTypes.LOCATION)
 async def loc_handler(message: types.Message, state: FSMContext):
     if (
@@ -718,14 +710,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
     )
 
     if not matched_branch:
-        await state.update_data(
-            latitude=loc.latitude,
-            longitude=loc.longitude,
-            distance=dist,
-            timestamp=datetime.datetime.now().isoformat(),
-            branch_id=effective_branch_id,
-        )
-        await UserAttendance.waiting_for_reason.set()
+        await state.finish()
         await show_location_issue_prompt(message.chat.id, menu_message_id, nearest_branch)
         return
 
@@ -886,22 +871,6 @@ async def loc_handler(message: types.Message, state: FSMContext):
         wid, wname, d_hrs, w_start, w_end = worker_record.values()
         is_free_mode = (not d_hrs or d_hrs <= 0 or not w_start or not w_end)
 
-        if dist > ALLOWED_RADIUS:
-            kb = types.InlineKeyboardMarkup(row_width=1)
-            for title, cmd in quick_reasons:
-                kb.add(types.InlineKeyboardButton(title, callback_data=f"qreason_{cmd}", style="primary"))
-            await message.reply(
-                "Siz ishxonadan uzoqdasiz. Sababni tanlang:",
-                reply_markup=kb
-            )
-            await state.update_data(
-                latitude=loc.latitude,
-                longitude=loc.longitude,
-                distance=dist,
-                timestamp=datetime.datetime.now().isoformat()
-            )
-            await UserAttendance.waiting_for_reason.set()
-            return
 
         now_dt_aware = datetime.datetime.now(datetime.timezone.utc)
         today_date = now_dt_aware.date()
@@ -1043,87 +1012,6 @@ async def only_loc(message: types.Message):
 #      UZOQDA → SABAB TEXT   (kel / ket / boshqa)
 # =================================================================
 # ---------------- QUICK-REASON callback ---------------------------------
-@dp.callback_query_handler(lambda c: c.data.startswith("qreason_"),
-                           state=UserAttendance.waiting_for_reason)
-async def quick_reason_chosen(callback_query: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    await show_location_issue_prompt(
-        callback_query.message.chat.id,
-        data.get("menu_message_id") or callback_query.message.message_id,
-        None,
-    )
-    await callback_query.answer(
-        "Eski tugmalar bekor qilingan. Lokatsiyani qayta yuboring yoki sababni matn bilan yozing.",
-        show_alert=True,
-    )
-
-
-@dp.message_handler(state=UserAttendance.waiting_for_reason,
-                    content_types=types.ContentTypes.TEXT)
-async def process_uzoqlik_reason(message: types.Message, state: FSMContext):
-    txt = message.text.strip()
-    if not txt:
-        await message.answer("Matn kiriting.")
-        return
-
-    d = await state.get_data()
-    lat, lon, dist, ts = d["latitude"], d["longitude"], d["distance"], d["timestamp"]
-    dep_mode = d.get("departure_mode", False)
-    menu_message_id = d.get("menu_message_id")
-
-    worker_record = await db.get_worker_by_tg_id(message.from_user.id)
-    if not worker_record:
-        await message.answer("Xodim topilmadi.")
-        await state.finish()
-        return
-    wid, wname = worker_record['id'], worker_record['full_name']
-    target_branch_id = d.get("branch_id") or worker_record.get("branch_id")
-
-    if txt in [cmd for _, cmd in quick_reasons]:
-        if dep_mode:
-            await finalize_departure_far_away(message, wid, wname, txt, lat, lon, dist, ts, branch_id=target_branch_id)
-        else:
-            await finalize_arrival_far_away(message, wid, wname, txt, lat, lon, dist, ts, branch_id=target_branch_id)
-        await state.finish()
-        return
-
-    # --- TUZATISH: pool o'rniga db.pool ishlatiladi ---
-    async with db.pool.acquire() as conn:
-        # Eski bazada attendance.user_id bu tg_id edi, yangi bazada ham shunday saqlaymiz
-        await conn.execute("""
-                           INSERT INTO attendance
-                           (user_id, name, timestamp, latitude, longitude, distance, branch_id, message, reason)
-                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                           """, wid, wname, ts, lat, lon, dist, target_branch_id, "Uzoq sabab", txt)
-
-    found_kel = bool(kel_pattern.search(txt.lower()))
-    found_ket = bool(ket_pattern.search(txt.lower()))
-
-    if found_kel and not found_ket:
-        await finalize_arrival_far_away(message, wid, wname, txt, lat, lon, dist, ts, branch_id=target_branch_id)
-    elif found_ket and not found_kel:
-        await finalize_departure_far_away(message, wid, wname, txt, lat, lon, dist, ts, branch_id=target_branch_id)
-    else:
-        link = f"http://www.google.com/maps/place/{lat},{lon}"
-        await notify_admins(
-            f"{wname} ishxonadan uzoqda.\nSabab: {txt}\nJoylashuv: {link}",
-            worker_id=wid,
-        )
-        await message.answer("Uzoqdasiz, lekin xabar ichida kel/ket yozuvi topilmadi, shuning uchun hisoblamadim.")
-
-    await state.finish()
-    await clear_old_employee_reply_keyboard(message.chat.id)
-    if menu_message_id:
-        await render_employee_menu(message.chat.id, message.from_user.id, preferred_message_id=menu_message_id)
-
-
-@dp.message_handler(state=UserAttendance.waiting_for_reason,
-                    content_types=[types.ContentType.ANY])
-async def only_text_reason(message: types.Message):
-    # Bu handlerda baza bilan ishlanmaydi, o'zgarmaydi
-    await message.answer("Lokatsiyani qayta yuboring yoki sababni matn bilan yozing.")
-
-
 # =================================================================
 #   KELMAGANLIK SABABI  (absence followup -> waiting_for_message)
 # =================================================================
@@ -1186,98 +1074,6 @@ async def process_absence_message(message: types.Message, state: FSMContext):
 async def process_absence_message_non_text(message: types.Message):
     """Sabab matndan boshqa formatda kelsa, matn so'raymiz."""
     await message.answer("Iltimos, kelmaganligingiz sababini matn (yozuv) ko'rinishida yuboring.")
-
-
-# -----------------------------------------------------------------
-# finalize_departure_far_away  |  finalize_arrival_far_away
-# -----------------------------------------------------------------
-async def finalize_departure_far_away(message, wid, wname, reason, lat, lon, dist, ts, branch_id=None):
-    link = f"http://www.google.com/maps/place/{lat},{lon}"
-    today_date = datetime.date.today()
-    now_dt_aware = datetime.datetime.now(datetime.timezone.utc)
-
-    # --- TUZATISH: pool o'rniga db.pool ishlatiladi ---
-    async with db.pool.acquire() as conn:
-        sess = await conn.fetchrow("""
-                                   SELECT id, arrival_time, departure_time, branch_id
-                                   FROM work_sessions
-                                   WHERE user_id = $1
-                                     AND date = $2
-                                   ORDER BY id DESC LIMIT 1
-                                   """, wid, today_date)
-
-        if sess and sess['departure_time'] is None:
-            s_id, arr_dt = sess['id'], sess['arrival_time']
-            session_branch_id = sess.get("branch_id") or branch_id
-            total_f = (now_dt_aware - arr_dt).total_seconds() / 3600.0
-
-            await conn.execute("""
-                               UPDATE work_sessions
-                               SET departure_time = $1,
-                                   total_hours    = $2,
-                                   branch_id      = COALESCE(branch_id, $4)
-                               WHERE id = $3
-                               """, now_dt_aware, total_f, s_id, session_branch_id)
-
-            await db.update_worker_day_status(
-                wid,
-                today_date,
-                day_state="left",
-                clock_out_at=now_dt_aware,
-                study_active=False,
-                last_source="worker",
-            )
-
-            await notify_admins(
-                f"🔚 {wname} KETDI (uzoqda)\nKelish {arr_dt.astimezone().strftime('%H:%M:%S')}, Ketish {now_dt_aware.astimezone().strftime('%H:%M:%S')}\n"
-                f"Ishlagan: {format_hours(total_f)}\nSabab: {reason}\n{link}",
-                worker_id=wid,
-            )
-            await message.answer("Ketishingiz qayd qilindi (uzoqdasiz).")
-        else:
-            await notify_admins(
-                f"{wname} bugun kelmagan, lekin \"ket\" deb yozdi.\nSabab: {reason}\n{link}",
-                worker_id=wid,
-            )
-            await message.answer("Ketish qayd qilindi (kelmagan bo'lsangiz ham).")
-
-
-async def finalize_arrival_far_away(message, wid, wname, reason, lat, lon, dist, ts, branch_id=None):
-    date = datetime.date.today()
-    now_dt_aware = datetime.datetime.now(datetime.timezone.utc)
-
-    # --- TUZATISH: pool o'rniga db.pool ishlatiladi ---
-    async with db.pool.acquire() as conn:
-        dhrs_record = await conn.fetchrow("SELECT daily_work_hours, branch_id FROM workers WHERE id = $1", wid)
-        dhrs = dhrs_record['daily_work_hours'] if dhrs_record else 0.0
-        worker_branch_id = dhrs_record['branch_id'] if dhrs_record else None
-
-        await conn.execute("""
-                           INSERT INTO work_sessions (user_id, date, arrival_time, is_friday, session_daily_hours, branch_id)
-                           VALUES ($1, $2, $3, FALSE, $4, $5)
-                           ON CONFLICT (user_id, date) DO UPDATE SET
-                               branch_id = COALESCE(work_sessions.branch_id, EXCLUDED.branch_id);
-                           """, wid, date, now_dt_aware, dhrs, branch_id or worker_branch_id)
-
-    if branch_id:
-        worker = await db.get_worker_by_id(wid)
-        if worker and worker.get("branch_id") is None:
-            await db.assign_worker_branch(wid, branch_id)
-
-    await db.update_worker_day_status(
-        wid,
-        date,
-        day_state="working",
-        clock_in_at=now_dt_aware,
-        clock_out_at=None,
-        rest_marked=False,
-        study_active=False,
-        last_source="worker",
-    )
-
-    link = f"http://www.google.com/maps/place/{lat},{lon}"
-    await notify_admins(f"✅ {wname} KELDI, lekin uzoqda.\nSabab: {reason}\n{link}", worker_id=wid)
-    await message.answer(f"Kelish qayd qilindi (uzoqdasiz). ({now_dt_aware.astimezone().strftime('%H:%M:%S')})")
 
 
 @dp.message_handler(commands=["maoshim"])
