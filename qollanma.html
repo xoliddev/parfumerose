@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<title>Parfumerose Bot — Foydalanish Qo'llanmasi</title>
+<style>
+  @page { size: A4; margin: 14mm 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Noto Sans", Arial, sans-serif;
+    color: #1f2937; line-height: 1.55; font-size: 13px;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  h1,h2,h3 { line-height: 1.2; }
+
+  /* ---------- COVER ---------- */
+  .cover {
+    height: 273mm; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: linear-gradient(135deg,#667eea 0%,#764ba2 55%,#f472b6 100%);
+    color: #fff; border-radius: 22px; padding: 30px;
+    page-break-after: always;
+  }
+  .cover .flower { font-size: 96px; filter: drop-shadow(0 6px 10px rgba(0,0,0,.25)); }
+  .cover h1 { font-size: 48px; margin: 18px 0 6px; letter-spacing: .5px; text-shadow: 0 3px 8px rgba(0,0,0,.25); }
+  .cover .sub { font-size: 22px; opacity: .96; font-weight: 600; }
+  .cover .desc { margin-top: 26px; font-size: 16px; max-width: 460px; background: rgba(255,255,255,.16);
+                 padding: 16px 20px; border-radius: 16px; }
+  .cover .badge { margin-top: 30px; font-size: 14px; background:#fff; color:#764ba2;
+                  padding: 10px 22px; border-radius: 30px; font-weight: 700; }
+
+  /* ---------- SECTIONS ---------- */
+  section { page-break-before: always; padding-top: 4px; }
+  .sec-head {
+    display: flex; align-items: center; gap: 12px;
+    color: #fff; padding: 14px 18px; border-radius: 14px; margin-bottom: 16px;
+  }
+  .sec-head .ico { font-size: 30px; }
+  .sec-head h2 { font-size: 24px; }
+  .sec-emp  { background: linear-gradient(90deg,#22c55e,#16a34a); }
+  .sec-adm  { background: linear-gradient(90deg,#3b82f6,#2563eb); }
+  .sec-sup  { background: linear-gradient(90deg,#a855f7,#7c3aed); }
+  .sec-br   { background: linear-gradient(90deg,#f59e0b,#d97706); }
+  .sec-faq  { background: linear-gradient(90deg,#ec4899,#db2777); }
+  .sec-intro{ background: linear-gradient(90deg,#0ea5e9,#0284c7); }
+
+  h3.block { font-size: 17px; margin: 18px 0 10px; color:#111827;
+             border-left: 5px solid #764ba2; padding-left: 10px; }
+
+  p { margin: 6px 0; }
+  .lead { font-size: 14px; }
+
+  /* ---------- STEP CARDS ---------- */
+  .steps { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+  .step {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 14px; padding: 12px 14px;
+    page-break-inside: avoid;
+  }
+  .step .num {
+    flex: 0 0 38px; height: 38px; width: 38px; border-radius: 50%;
+    background: linear-gradient(135deg,#667eea,#764ba2); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size: 19px; font-weight: 800;
+  }
+  .step .txt { flex: 1; }
+  .step .txt b { color:#111827; }
+
+  /* ---------- BUTTON CARDS GRID ---------- */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+  .btncard {
+    border-radius: 14px; padding: 12px 14px; color:#fff; page-break-inside: avoid;
+    box-shadow: 0 2px 5px rgba(0,0,0,.12);
+  }
+  .btncard .bt { font-size: 15px; font-weight: 800; margin-bottom: 3px; }
+  .btncard .bd { font-size: 12px; opacity: .97; }
+  .c-green { background: linear-gradient(135deg,#22c55e,#15803d); }
+  .c-red   { background: linear-gradient(135deg,#ef4444,#b91c1c); }
+  .c-blue  { background: linear-gradient(135deg,#3b82f6,#1d4ed8); }
+  .c-orange{ background: linear-gradient(135deg,#f59e0b,#b45309); }
+  .c-purple{ background: linear-gradient(135deg,#a855f7,#6d28d9); }
+  .c-pink  { background: linear-gradient(135deg,#ec4899,#9d174d); }
+  .c-gray  { background: linear-gradient(135deg,#64748b,#334155); }
+  .c-teal  { background: linear-gradient(135deg,#14b8a6,#0f766e); }
+
+  /* ---------- CALLOUTS ---------- */
+  .note, .warn, .tip {
+    border-radius: 12px; padding: 11px 14px; margin: 12px 0; font-size: 12.5px;
+    display:flex; gap:10px; align-items:flex-start; page-break-inside: avoid;
+  }
+  .note { background:#eff6ff; border:1px solid #bfdbfe; }
+  .warn { background:#fef2f2; border:1px solid #fecaca; }
+  .tip  { background:#f0fdf4; border:1px solid #bbf7d0; }
+  .note .i,.warn .i,.tip .i { font-size: 20px; }
+
+  /* ---------- LEGEND ---------- */
+  .legend { display:flex; gap:10px; margin:14px 0; }
+  .legend .pill { flex:1; border-radius: 14px; padding: 12px; color:#fff; text-align:center; page-break-inside: avoid; }
+  .legend .pill .big { font-size: 22px; }
+  .legend .pill .nm { font-size: 14px; font-weight: 800; margin-top:4px;}
+  .legend .pill .ds { font-size: 11px; opacity:.95; }
+
+  /* phone mock chat bubble */
+  .chat { background:#e7f3ff; border-radius:14px; padding:12px; margin:10px 0; page-break-inside:avoid; }
+  .bubble { background:#fff; border-radius:12px; padding:8px 12px; margin:6px 0; display:inline-block; max-width:90%;
+            box-shadow:0 1px 2px rgba(0,0,0,.1); font-size:12.5px; }
+  .bubble.me { background:#d1fae5; }
+  .toc { background:#faf5ff; border:1px solid #e9d5ff; border-radius:14px; padding:16px 20px; }
+  .toc li { margin:5px 0; font-size:14px; }
+  table.faq { width:100%; border-collapse:collapse; margin-top:8px; }
+  table.faq td { border:1px solid #e5e7eb; padding:9px 11px; vertical-align:top; font-size:12.5px; }
+  table.faq td.q { background:#fdf2f8; font-weight:700; width:42%; }
+  .footer { text-align:center; color:#9ca3af; font-size:11px; margin-top:18px; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div class="flower">🌸</div>
+  <h1>Parfumerose Bot</h1>
+  <div class="sub">📘 Foydalanish Qo'llanmasi</div>
+  <div class="desc">Bu bot xodimlarning <b>ishga kelib-ketishini</b> (davomat) va <b>maoshini</b> Telegram orqali oson boshqaradi. Bu qo'llanma 0 dan boshlab hammasini o'rgatadi.</div>
+  <div class="badge">Oddiy • Rangli • Hammaga tushunarli</div>
+</div>
+
+<!-- ============ MUNDARIJA ============ -->
+<section>
+  <div class="sec-head sec-intro"><span class="ico">🗂️</span><h2>Mundarija</h2></div>
+  <div class="toc">
+    <ol>
+      <li><b>Bu bot nima?</b> — qisqacha tushuntirish</li>
+      <li><b>Tugma ranglari</b> — ranglar nimani bildiradi</li>
+      <li><b>👷 Xodimlar uchun</b> — ishga kelish, ketish, maosh</li>
+      <li><b>👮 Adminlar uchun</b> — boshqarish, hisobotlar, AI</li>
+      <li><b>👑 Katta admin uchun</b> — filial va adminlar</li>
+      <li><b>🏢 Filiallar</b> — har bir do'kon alohida</li>
+      <li><b>❓ Savol-javob (FAQ)</b></li>
+    </ol>
+  </div>
+
+  <h3 class="block">1. Bu bot nima? 🤔</h3>
+  <p class="lead">Tasavvur qiling: do'konda ishlaydigan xodimlar bor. Har kuni ular <b>qachon ishga kelgani</b> va <b>qachon ketgani</b>ni yozib borish kerak. Avval buni qog'ozga yozardilar — bu qiyin va chalkash edi.</p>
+  <p class="lead">Endi bu botda hammasi <b>o'z-o'zidan</b> bo'ladi! Xodim telefonida bitta tugma bosadi — bot vaqtni yozib oladi. Oy oxirida bot <b>maoshni o'zi hisoblab beradi</b>. Admin esa hamma narsani telefonida ko'rib turadi. 🎉</p>
+  <div class="note"><span class="i">💡</span><div>Bot 2 xil odam bilan ishlaydi: <b>Xodim</b> (oddiy ishchi) va <b>Admin</b> (boshliq). Har biri o'z menyusini ko'radi.</div></div>
+</section>
+
+<!-- ============ RANGLAR ============ -->
+<section>
+  <div class="sec-head sec-intro"><span class="ico">🎨</span><h2>2. Tugma ranglari nimani bildiradi?</h2></div>
+  <p class="lead">Botdagi tugmalar uch xil rangda bo'ladi. Rangiga qarab nima bo'lishini darrov bilib olasiz:</p>
+  <div class="legend">
+    <div class="pill c-blue"><div class="big">🔵</div><div class="nm">Ko'k</div><div class="ds">Oddiy amal: ko'rish, ochish, orqaga qaytish</div></div>
+    <div class="pill c-green"><div class="big">🟢</div><div class="nm">Yashil</div><div class="ds">Yaxshi amal: boshlash, qo'shish, tasdiqlash</div></div>
+    <div class="pill c-red"><div class="big">🔴</div><div class="nm">Qizil</div><div class="ds">Ehtiyot amal: tugatish, o'chirish, bekor qilish</div></div>
+  </div>
+  <div class="tip"><span class="i">✅</span><div>Masalan: «🟢 Ishga keldim» yashil (yaxshi — ish boshlandi), «🔴 Ketyapman» qizil (ish tugadi).</div></div>
+</section>
+
+<!-- ============ XODIMLAR ============ -->
+<section>
+  <div class="sec-head sec-emp"><span class="ico">👷</span><h2>3. Xodimlar uchun qo'llanma</h2></div>
+
+  <h3 class="block">🚀 Birinchi marta: botga qo'shilish</h3>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt">Telegram'da botni oching va <b>/start</b> deb yozing (yoki «Start» tugmasini bosing).</div></div>
+    <div class="step"><div class="num">2</div><div class="txt">Bot sizni tanimaydi, shuning uchun <b>«Xodim bo'lish»</b> tugmasi chiqadi — uni bosing.</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">Bot ismingizni so'raydi. <b>To'liq ism-familiyangizni</b> yozing (masalan: <i>Rustam Xojayev</i>).</div></div>
+    <div class="step"><div class="num">4</div><div class="txt">Tamom! So'rovingiz <b>adminga</b> ketdi. Admin tasdiqlagach, siz xodim bo'lasiz. ✅</div></div>
+  </div>
+  <div class="note"><span class="i">⏳</span><div>Admin tasdiqlamaguncha kuting. Tasdiqlangach botdan xabar keladi va menyu ochiladi.</div></div>
+
+  <h3 class="block">📱 Asosiy menyu — har bir tugma</h3>
+  <p>Botga <b>/start</b> yozsangiz, sizning shaxsiy menyungiz chiqadi:</p>
+  <div class="grid">
+    <div class="btncard c-green"><div class="bt">🟢 Ishga keldim</div><div class="bd">Ishga kelganingizni belgilaysiz</div></div>
+    <div class="btncard c-red"><div class="bt">🔴 Ketyapman</div><div class="bd">Ishdan ketayotganingizni belgilaysiz</div></div>
+    <div class="btncard c-red"><div class="bt">🌙 Dam</div><div class="bd">Bugun dam olayotganingizni bildirasiz</div></div>
+    <div class="btncard c-orange"><div class="bt">🟠 O'qishga ketdim</div><div class="bd">O'qishga ketsangiz belgilaysiz</div></div>
+    <div class="btncard c-blue"><div class="bt">💰 Maoshim</div><div class="bd">Maoshingiz va to'lovlarni ko'rasiz</div></div>
+    <div class="btncard c-blue"><div class="bt">📊 Statistika</div><div class="bd">Necha soat ishlaganingizni ko'rasiz</div></div>
+    <div class="btncard c-blue"><div class="bt">🆘 Yordam</div><div class="bd">Adminga xabar/savol yuborasiz</div></div>
+    <div class="btncard c-blue"><div class="bt">🔄 Yangilash</div><div class="bd">Menyuni yangilaydi</div></div>
+  </div>
+  <div class="note"><span class="i">🔁</span><div>Menyu <b>aqlli</b>: ishga kelsangiz «🟢 Ishga keldim» o'rniga «🔴 Ketyapman» chiqadi. Ya'ni tugma holatga qarab o'zgaradi.</div></div>
+</section>
+
+<section>
+  <div class="sec-head sec-emp"><span class="ico">📍</span><h2>3. Xodimlar — ishga kelish va ketish</h2></div>
+
+  <h3 class="block">🟢 Ishga kelganda</h3>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt">Menyudan <b>«🟢 Ishga keldim»</b> tugmasini bosing.</div></div>
+    <div class="step"><div class="num">2</div><div class="txt">Bot <b>jonli lokatsiya (Live Location)</b> so'raydi. Bu sizning haqiqatan do'konda ekanligingizni tekshiradi.</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">📎 belgisini bosing → <b>Location</b> → <b>Share My Live Location</b> → 15 daqiqaga yuboring.</div></div>
+    <div class="step"><div class="num">4</div><div class="txt">Agar do'kon yaqinida bo'lsangiz — bot <b>«Kelishingiz qayd qilindi ✅»</b> deydi. Vaqt yozib olinadi!</div></div>
+  </div>
+  <div class="warn"><span class="i">⚠️</span><div><b>Oddiy lokatsiya emas, JONLI lokatsiya (Live Location) yuboring!</b> Aks holda bot qabul qilmaydi.</div></div>
+
+  <h3 class="block">🔴 Ishdan ketganda</h3>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt">Menyudan <b>«🔴 Ketyapman»</b> tugmasini bosing.</div></div>
+    <div class="step"><div class="num">2</div><div class="txt">Yana jonli lokatsiya yuboring.</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">Bot ketganingizni yozadi va <b>bugun necha soat ishlaganingizni</b> hisoblaydi. 🕐</div></div>
+  </div>
+
+  <h3 class="block">🤔 Do'kondan uzoqda bo'lsangiz nima bo'ladi?</h3>
+  <p>Agar lokatsiyangiz do'kondan uzoqda bo'lsa, bot <b>sababini so'raydi</b>. Siz sababni yozasiz (masalan: «Ustanovkadaman» yoki «Internet muammosi»), va bu <b>avtomatik adminga</b> yetkaziladi.</p>
+
+  <h3 class="block">😴 Kelmagan kuningiz</h3>
+  <p>Agar belgilangan vaqtda ishga kelmasangiz, bot o'zi sizga yozadi: <i>«Bugun ishga kelmadingizmi? Sababini yozing.»</i></p>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt">Bot sababini so'raydi.</div></div>
+    <div class="step"><div class="num">2</div><div class="txt">Siz sababni <b>matn bilan</b> yozasiz (masalan: «Kasal bo'lib qoldim»).</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">Sababingiz <b>adminga ham, guruhga ham</b> yetkaziladi. Admin «Sababli/Sababsiz» deb belgilaydi.</div></div>
+  </div>
+  <div class="tip"><span class="i">💚</span><div>Sababingizni rost va aniq yozing — admin uni ko'radi va to'g'ri qaror qabul qiladi.</div></div>
+</section>
+
+<section>
+  <div class="sec-head sec-emp"><span class="ico">💰</span><h2>3. Xodimlar — maosh, statistika, yordam</h2></div>
+
+  <h3 class="block">💰 Maoshim</h3>
+  <p>«💰 Maoshim» tugmasini bossangiz bot ko'rsatadi:</p>
+  <div class="chat">
+    <div class="bubble">💳 Tayinlangan maosh: 3 000 000 so'm<br>✅ Olingan: 1 000 000 so'm<br>🟡 Qolgan: 2 000 000 so'm<br><br>📄 Bu oygi to'lovlar:<br>• 05.06.2026 — 1 000 000 so'm</div>
+  </div>
+
+  <h3 class="block">📊 Statistika</h3>
+  <p>«📊 Statistika» — yilni va oyni tanlaysiz, bot o'sha oyda <b>necha soat / kun ishlaganingizni</b> ko'rsatadi.</p>
+
+  <h3 class="block">🆘 Yordam</h3>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt">«🆘 Yordam» tugmasini bosing.</div></div>
+    <div class="step"><div class="num">2</div><div class="txt">Muammo yoki taklifingizni <b>yozing</b>.</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">Xabaringiz to'g'ridan-to'g'ri <b>adminga</b> boradi. ✉️</div></div>
+  </div>
+  <div class="note"><span class="i">🤖</span><div>Bot aqlli: siz oddiygina yozsangiz ham (tugmasiz), agar muhim xabar bo'lsa — adminga yuboradi.</div></div>
+</section>
+
+<!-- ============ ADMINLAR ============ -->
+<section>
+  <div class="sec-head sec-adm"><span class="ico">👮</span><h2>4. Adminlar uchun qo'llanma</h2></div>
+  <p class="lead">Admin — bu boshliq. Admin <b>/start</b> yozsa, boshqaruv menyusi chiqadi. Admin faqat <b>o'z filialidagi</b> xodimlarni ko'radi va boshqaradi.</p>
+
+  <h3 class="block">📋 Admin menyusi — har bir tugma</h3>
+  <div class="grid">
+    <div class="btncard c-blue"><div class="bt">👥 Xodimlar</div><div class="bd">Xodimlar ro'yxati va ularni boshqarish</div></div>
+    <div class="btncard c-blue"><div class="bt">📅 Kunlik hisobot</div><div class="bd">Bugun kim kelgan/ketganini ko'rish</div></div>
+    <div class="btncard c-blue"><div class="bt">📆 Oylik hisobot</div><div class="bd">Oy bo'yicha davomat</div></div>
+    <div class="btncard c-blue"><div class="bt">💰 Maoshlar</div><div class="bd">Maosh hisobi va to'lov qilish</div></div>
+    <div class="btncard c-blue"><div class="bt">📈 Bot foydalanuvchilari</div><div class="bd">Bot statistikasi</div></div>
+    <div class="btncard c-blue"><div class="bt">⏰ Ish soati vaqtlari</div><div class="bd">Ish boshlanish/tugash vaqtlari</div></div>
+    <div class="btncard c-green"><div class="bt">✅ Davomat</div><div class="bd">Xodimni qo'lda keldi/ketdi belgilash</div></div>
+    <div class="btncard c-green"><div class="bt">➕ Xodim qo'shish</div><div class="bd">Yangi xodim qo'shish</div></div>
+  </div>
+
+  <h3 class="block">🆕 Yangi xodimni qabul qilish</h3>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt">Yangi odam «Xodim bo'lish» bosganda, sizga xabar keladi: ismi + 2 ta tugma.</div></div>
+    <div class="step"><div class="num">2</div><div class="txt"><b>🟢 «Qabul qilish»</b> yoki <b>🔴 «Rad etish»</b> ni bosing.</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">Qabul qilsangiz — filial, ish vaqti, maosh kabi ma'lumotlarni kiritasiz. Tamom — xodim qo'shildi! 🎉</div></div>
+  </div>
+
+  <h3 class="block">➕ Xodim qo'shish (qo'lda)</h3>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt">«➕ Xodim qo'shish» ni bosing.</div></div>
+    <div class="step"><div class="num">2</div><div class="txt">Bot ketma-ket so'raydi: <b>ism → Telegram ID → filial → maosh → ish boshlanish vaqti → tugash vaqti</b>.</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">Bot ish soatini o'zi hisoblaydi va xodimni saqlaydi. ✅</div></div>
+  </div>
+  <div class="note"><span class="i">📱</span><div>Telefoni yo'q xodimni ham qo'shish mumkin — uni admin <b>qo'lda «Davomat»</b> orqali belgilaydi.</div></div>
+
+  <h3 class="block">✅ Davomat — qo'lda belgilash</h3>
+  <p>«✅ Davomat» — xodimlar ro'yxati chiqadi. Xodimni tanlab, <b>«✅ Keldi»</b>, <b>«🔴 Ketdi»</b>, <b>«🌙 Dam»</b> yoki <b>«🎓 O'qish»</b> deb belgilashingiz mumkin. Telefoni yo'q xodimlar uchun juda foydali.</p>
+
+  <h3 class="block">💰 Maoshlar — ko'rish va to'lash</h3>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt">«💰 Maoshlar» → yil → oy → xodimni tanlang.</div></div>
+    <div class="step"><div class="num">2</div><div class="txt">Bot maosh, olingan va qolgan summani ko'rsatadi.</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">To'lov (avans/maosh) qo'shishingiz mumkin — bot hammasini yozib boradi.</div></div>
+  </div>
+</section>
+
+<!-- ============ AI ============ -->
+<section>
+  <div class="sec-head sec-adm"><span class="ico">🤖</span><h2>4. Adminlar — Aqlli Yordamchi (AI)</h2></div>
+  <p class="lead">Eng zo'r imkoniyat! Admin botga <b>oddiy gap bilan</b> (yozib yoki <b>ovozli xabar</b> bilan) buyruq bera oladi. Bot tushunadi va bajaradi.</p>
+
+  <h3 class="block">💬 Misollar — shunchaki yozing yoki ayting:</h3>
+  <div class="chat">
+    <div class="bubble me">Rustam bugun soat nechida keldi?</div><br>
+    <div class="bubble">🤖 Rustam bugun 09:05 da keldi.</div><br>
+    <div class="bubble me">Zulayhoga 500 ming avans ber</div><br>
+    <div class="bubble">🤖 Zulayhoga 500 000 so'm to'lov qo'shildi ✅</div><br>
+    <div class="bubble me">🎤 (ovozli) Bugun kim ishga kelmadi?</div><br>
+    <div class="bubble">🤖 Bugun 2 kishi kelmadi: Ali, Vali.</div>
+  </div>
+  <div class="tip"><span class="i">🎤</span><div><b>Ovozli xabar</b> ham yuborsangiz bo'ladi! Bot ovozni matnga aylantirib, buyruqni bajaradi.</div></div>
+  <div class="note"><span class="i">🔒</span><div>AI faqat <b>sizning filialingiz</b> xodimlari bilan ishlaydi — boshqa filialnikiga aralashmaydi.</div></div>
+</section>
+
+<!-- ============ SUPERADMIN ============ -->
+<section>
+  <div class="sec-head sec-sup"><span class="ico">👑</span><h2>5. Katta admin (SuperAdmin) uchun</h2></div>
+  <p class="lead">Katta admin — eng yuqori boshliq. U <b>barcha filiallarni</b> boshqara oladi va yangi adminlar tayinlaydi.</p>
+
+  <h3 class="block">🔀 Filialni almashtirish</h3>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt"><b>/start</b> bosganda, katta admin avval <b>filialni tanlaydi</b>.</div></div>
+    <div class="step"><div class="num">2</div><div class="txt">Tanlangan filial bo'yicha ishlaydi (xodimlar, hisobotlar — faqat o'sha filial).</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">Boshqa filialga o'tish uchun <b>«Filialni almashtirish»</b> tugmasini bosadi.</div></div>
+  </div>
+
+  <h3 class="block">👥 Adminlarni boshqarish</h3>
+  <p>«Adminlar» menyusida katta admin:</p>
+  <div class="grid">
+    <div class="btncard c-purple"><div class="bt">👑 Katta adminlar</div><div class="bd">Yangi katta admin qo'shish/olib tashlash</div></div>
+    <div class="btncard c-purple"><div class="bt">🏢 Filial adminlari</div><div class="bd">Har bir filialga admin tayinlash</div></div>
+  </div>
+  <div class="note"><span class="i">💡</span><div><b>Filial admini</b> faqat o'z filialini ko'radi. <b>Katta admin</b> istalgan filialga o'tib ishlay oladi.</div></div>
+</section>
+
+<!-- ============ FILIALLAR ============ -->
+<section>
+  <div class="sec-head sec-br"><span class="ico">🏢</span><h2>6. Filiallar — har biri alohida</h2></div>
+  <p class="lead">Korxonada bir nechta do'kon (filial) bo'lishi mumkin — masalan «Yangi Bozor» va «Eski Shahar». Bot ularni <b>aralashtirib yubormaydi</b>.</p>
+  <div class="grid">
+    <div class="btncard c-orange"><div class="bt">🏬 Yangi Bozor</div><div class="bd">O'z xodimlari, o'z admini, o'z hisoboti</div></div>
+    <div class="btncard c-teal"><div class="bt">🏬 Eski Shahar</div><div class="bd">O'z xodimlari, o'z admini, o'z hisoboti</div></div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="num">✓</div><div class="txt"><b>Filial admini</b> faqat o'z filialidagi xodimlarni ko'radi — boshqasini emas.</div></div>
+    <div class="step"><div class="num">✓</div><div class="txt"><b>Bildirishnomalar</b> (kim keldi/ketdi) faqat o'sha filial adminiga va guruhiga boradi.</div></div>
+    <div class="step"><div class="num">✓</div><div class="txt"><b>Maosh, hisobot, davomat</b> — hammasi filial bo'yicha ajratilgan.</div></div>
+  </div>
+  <div class="tip"><span class="i">🔒</span><div>Demak ikki filial bir-biriga <b>aralashmaydi</b> — har bir admin faqat o'ziniki bilan ishlaydi. Xavfsiz va tartibli!</div></div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section>
+  <div class="sec-head sec-faq"><span class="ico">❓</span><h2>7. Tez-tez beriladigan savollar</h2></div>
+  <table class="faq">
+    <tr><td class="q">Lokatsiya yuborsam ham «qabul qilinmadi» deyapti?</td><td>Siz <b>oddiy</b> lokatsiya yuborgansiz. <b>Jonli lokatsiya (Live Location)</b> kerak: 📎 → Location → «Share My Live Location».</td></tr>
+    <tr><td class="q">Do'kondan uzoqdaman, lekin haqiqatan ishdaman?</td><td>Bot sababini so'raydi — sababni yozing, u adminga boradi. Admin hal qiladi.</td></tr>
+    <tr><td class="q">Tugma bosdim, lekin hech narsa bo'lmadi?</td><td>«🔄 Yangilash» ni bosing yoki <b>/start</b> yozing — menyu yangilanadi.</td></tr>
+    <tr><td class="q">Maoshim noto'g'ri ko'rinyapti?</td><td>Adminga «🆘 Yordam» orqali yozing — admin tekshiradi va to'g'rilaydi.</td></tr>
+    <tr><td class="q">Ovozli buyruq ishlaydimi?</td><td>Ha, faqat <b>adminlar</b> uchun. Ovozli xabar yuboring — bot tushunadi.</td></tr>
+    <tr><td class="q">Xodim telefoni yo'q bo'lsa-chi?</td><td>Admin uni <b>«✅ Davomat»</b> orqali qo'lda keldi/ketdi deb belgilaydi.</td></tr>
+    <tr><td class="q">Botni qanday boshlayman?</td><td>Telegram'da botni ochib <b>/start</b> yozing. Hammasi shundan boshlanadi! 🚀</td></tr>
+  </table>
+
+  <div class="tip" style="margin-top:18px"><span class="i">🌸</span><div><b>Eslab qoling:</b> har doim <b>/start</b> — bu sehrli kalit. Adashsangiz, shuni yozing, bot sizni to'g'ri menyuga olib boradi.</div></div>
+
+  <div class="footer">🌸 Parfumerose Bot — Foydalanish Qo'llanmasi • Davomat va maosh tizimi</div>
+</section>
+
+</body>
+</html>
