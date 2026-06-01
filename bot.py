@@ -17,7 +17,7 @@ from loader import dp, bot
 
 # Ma'lumotlar bazasi bilan ishlash uchun kerakli funksiyalar
 import database as db
-from config import ABSENCE_REMINDER_DELAY_MIN, BOT_TOKEN, SUPERADMINS
+from config import ABSENCE_REMINDER_DELAY_MIN, BOT_TOKEN
 from states import UserAttendance
 from shared import (
     build_absence_review_keyboard,
@@ -82,26 +82,6 @@ async def send_evening_briefings():
                 await bot.send_message(worker['tg_id'], text)
         except Exception as e:
             logging.error(f"{worker['id']} ID'li xodimga kechki xabar yuborishda xatolik: {e}")
-
-async def check_stock_job():
-    """Omborda kam qolgan materiallarni tekshiradi va Adminga xabar beradi."""
-    try:
-        low_materials = await db.check_low_stock_materials()
-        if low_materials:
-            text = "⚠️ <b>DIQQAT! KAM QOLGAN MATERIALLAR:</b>\n\n"
-            for mat in low_materials:
-                text += f"📦 {mat['name']}: <b>{mat['quantity']}</b> {mat['unit']} (Min: {mat['min_quantity']})\n"
-            
-            text += "\nIltimos, zaxirani to'ldiring!"
-            
-            for admin_id in sorted(set(SUPERADMINS)):
-                try:
-                    await bot.send_message(admin_id, text, parse_mode="HTML")
-                except Exception as e:
-                    logging.error(f"Adminga (ID: {admin_id}) xabar yuborishda xatolik: {e}")
-    except Exception as e:
-        logging.error(f"Ombor tekshiruvi (check_stock_job) da xatolik: {e}")
-
 
 async def check_late_arrivals_job():
     """Ishga kech qolganlarni tekshiradi va Adminga hisobot beradi."""
@@ -239,10 +219,6 @@ def schedule_jobs():
         trigger=CronTrigger(hour=9, minute=30, day_of_week='mon-sat'),
     )
     
-    scheduler.add_job(
-        check_stock_job,
-        trigger=CronTrigger(hour=10, minute=0),
-    )
     logging.info("Shaxsiy hisobotlar muvaffaqiyatli rejalashtirildi.")
 
 

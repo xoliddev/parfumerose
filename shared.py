@@ -283,7 +283,7 @@ def build_paginated_inline(
     :param items: Joriy sahifa uchun tugmalar ro'yxati [(matn, callback_data), ...].
     :param page: Joriy sahifa raqami (0 dan boshlanadi).
     :param per_page: Bir sahifadagi elementlar soni.
-    :param page_prefix: Paginatsiya callback'i uchun unikal prefiks (masalan, "acc:orders:list").
+    :param page_prefix: Paginatsiya callback'i uchun unikal prefiks (masalan, "salwp").
     :param back_cb: "Orqaga" tugmasi uchun callback_data.
     :param total_items: Ro'yxatdagi jami elementlar soni.
     :param page_separator: Sahifa prefiksi bilan sahifa raqami orasidagi ajratgich.
