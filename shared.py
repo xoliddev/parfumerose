@@ -293,7 +293,7 @@ def build_paginated_inline(
 
     # 1. Asosiy elementlarni (tugmalarni) klaviaturaga qo'shamiz
     for label, cb_data in items:
-        kb.insert(InlineKeyboardButton(label, callback_data=cb_data))
+        kb.insert(InlineKeyboardButton(label, callback_data=cb_data, style="primary"))
 
     # 2. Navigatsiya qatorini yasaymiz
     total_pages = ceil(total_items / per_page)

@@ -734,9 +734,8 @@ async def handle_salary_year(callback_query: types.CallbackQuery):
     for i in range(1, 13):
         month = f"{i:02}"
         kb.insert(types.InlineKeyboardButton(
-            text=OY_NOMI[month], callback_data=f"salary_month_{year}_{month}"
-        ))
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="salary_tree"))
+            text=OY_NOMI[month], callback_data=f"salary_month_{year}_{month}", style="primary"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="salary_tree", style="primary"))
     await callback_query.message.edit_text(
         f"{year} yil uchun oylardan birini tanlang:", reply_markup=kb
     )
@@ -868,15 +867,15 @@ async def handle_salary_worker(callback_query: types.CallbackQuery, state: FSMCo
 
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(
-            types.InlineKeyboardButton("📌 Maosh tayinlash", callback_data=f"set_salary_{worker_id}"),
-            types.InlineKeyboardButton("➕ To‘lov qo‘shish", callback_data=f"add_payment_{worker_id}_{year}_{month}")
+            types.InlineKeyboardButton("📌 Maosh tayinlash", callback_data=f"set_salary_{worker_id}", style="primary"),
+            types.InlineKeyboardButton("➕ To‘lov qo‘shish", callback_data=f"add_payment_{worker_id}_{year}_{month}", style="success")
         )
         keyboard.add(
             types.InlineKeyboardButton("📋 To‘lovlar tafsiloti",
-                                       callback_data=f"payment_details_{worker_id}_{year}_{month}")
+                                       callback_data=f"payment_details_{worker_id}_{year}_{month}", style="primary")
         )
         keyboard.add(
-            types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"salary_month_{year}_{month}")
+            types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"salary_month_{year}_{month}", style="primary")
         )
 
         await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -990,11 +989,10 @@ async def handle_payment_details(callback_query: types.CallbackQuery, state: FSM
         keyboard.add(
             types.InlineKeyboardButton(
                 text=f"{date_str} — {amount:,.0f} so‘m",
-                callback_data=f"payment_detail_{row['id']}"
-            )
+                callback_data=f"payment_detail_{row['id']}", style="primary")
         )
     keyboard.add(
-        types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"salary_worker_{worker_id}_{year}_{month}")
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"salary_worker_{worker_id}_{year}_{month}", style="primary")
     )
     await callback_query.message.edit_text(
         f"{year}-{month} oyi uchun to‘lovlar ro‘yxati:",
@@ -1025,11 +1023,11 @@ async def handle_payment_detail(callback_query: types.CallbackQuery):
 
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
-        types.InlineKeyboardButton("✏️ Tahrirlash", callback_data=f"edit_payment_{payment_id}"),
-        types.InlineKeyboardButton("🗑 O‘chirish", callback_data=f"delete_payment_{payment_id}")
+        types.InlineKeyboardButton("✏️ Tahrirlash", callback_data=f"edit_payment_{payment_id}", style="primary"),
+        types.InlineKeyboardButton("🗑 O‘chirish", callback_data=f"delete_payment_{payment_id}", style="danger")
     )
     keyboard.add(
-        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="salary_tree")
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="salary_tree", style="primary")
     )
     await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -1636,7 +1634,7 @@ async def view_worker(callback_query: types.CallbackQuery):
     )
 
     kb = types.InlineKeyboardMarkup().add(
-        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_workers")
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_workers", style="primary")
     )
     await callback_query.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     await callback_query.answer()
@@ -1734,8 +1732,8 @@ async def admin_work_hours_menu(callback_query: types.CallbackQuery):
 
     kb = types.InlineKeyboardMarkup(row_width=2)
     for row in rows:
-        kb.insert(types.InlineKeyboardButton(_format_worker_option_label(row), callback_data=f"editwh_{row['id']}"))
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main"))
+        kb.insert(types.InlineKeyboardButton(_format_worker_option_label(row), callback_data=f"editwh_{row['id']}", style="primary"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
     await callback_query.message.edit_text("Ish vaqtlarini sozlash uchun xodimni tanlang:", reply_markup=kb)
     await callback_query.answer()
 
@@ -1774,10 +1772,10 @@ async def show_worker_work_hours(callback_query: types.CallbackQuery):
     )
 
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("✏️ Ish vaqtini belgilash/o'zgartirish", callback_data=f"setworktime_{wid}"))
-    kb.add(types.InlineKeyboardButton("🕒 Kunlik ish soatini tahrirlash", callback_data=f"editdw_yes_{wid}"))
-    kb.add(types.InlineKeyboardButton("❌ Ish vaqtini bekor qilish", callback_data=f"delete_worktime_{wid}"))
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="work_hours_menu"))
+    kb.add(types.InlineKeyboardButton("✏️ Ish vaqtini belgilash/o'zgartirish", callback_data=f"setworktime_{wid}", style="primary"))
+    kb.add(types.InlineKeyboardButton("🕒 Kunlik ish soatini tahrirlash", callback_data=f"editdw_yes_{wid}", style="primary"))
+    kb.add(types.InlineKeyboardButton("❌ Ish vaqtini bekor qilish", callback_data=f"delete_worktime_{wid}", style="danger"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="work_hours_menu", style="primary"))
     await callback_query.message.edit_text(desc, parse_mode="HTML", reply_markup=kb)
     await callback_query.answer()
 
@@ -2145,7 +2143,7 @@ async def show_months(callback_query: types.CallbackQuery):
 
     if not months_records:
         kb = types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main")
+            types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary")
         )
         await callback_query.message.edit_text(
             "Hozircha oylik ma'lumotlar mavjud emas.",
@@ -2156,8 +2154,8 @@ async def show_months(callback_query: types.CallbackQuery):
     kb = types.InlineKeyboardMarkup(row_width=3)
     for record in months_records:
         m = record['month']
-        kb.insert(types.InlineKeyboardButton(text=m, callback_data=f"month_{m}"))
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main"))
+        kb.insert(types.InlineKeyboardButton(text=m, callback_data=f"month_{m}", style="primary"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
 
     await callback_query.message.edit_text(
         "Iltimos, oy tanlang:",
@@ -2204,7 +2202,7 @@ async def show_days_in_month(callback_query: types.CallbackQuery):
 
     if not days_records:
         kb = types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_monthly_report")
+            types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_monthly_report", style="primary")
         )
         await callback_query.message.edit_text(
             f"{month} oyida ma'lumotlar topilmadi.",
@@ -2215,9 +2213,9 @@ async def show_days_in_month(callback_query: types.CallbackQuery):
     kb = types.InlineKeyboardMarkup(row_width=3)
     for record in days_records:
         d_str = record['date'].strftime('%Y-%m-%d')
-        kb.insert(types.InlineKeyboardButton(text=d_str, callback_data=f"day_{d_str}"))
+        kb.insert(types.InlineKeyboardButton(text=d_str, callback_data=f"day_{d_str}", style="primary"))
 
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_monthly_report"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_monthly_report", style="primary"))
 
     await callback_query.message.edit_text(
         f"{month} oyidagi kunlarni tanlang:",
@@ -2267,7 +2265,7 @@ async def show_employees_in_day(callback_query: types.CallbackQuery):
 
     if not workers:
         kb = types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"month_{day[:7]}")
+            types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"month_{day[:7]}", style="primary")
         )
         await callback_query.message.edit_text(f"{day} da xodim ma'lumotlari topilmadi.", reply_markup=kb)
         return await callback_query.answer()
@@ -2276,10 +2274,9 @@ async def show_employees_in_day(callback_query: types.CallbackQuery):
     for worker in workers:
         kb.insert(types.InlineKeyboardButton(
             text=_format_worker_option_label(dict(worker)),
-            callback_data=f"daily_details_{worker['id']}_{day}"
-        ))
+            callback_data=f"daily_details_{worker['id']}_{day}", style="primary"))
 
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"month_{day[:7]}"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"month_{day[:7]}", style="primary"))
     await callback_query.message.edit_text(f"{day} da quyidagi xodimlar mavjud:", reply_markup=kb)
     await callback_query.answer()
 
@@ -2367,8 +2364,8 @@ async def modify_salary_options(callback_query: types.CallbackQuery, state: FSMC
         return await callback_query.answer("Bu xodim sizning filialingizga tegishli emas.", show_alert=True)
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
-        types.InlineKeyboardButton("To'lovlarni tahrirlash", callback_data=f"modifypayments_{worker_id}"),
-        types.InlineKeyboardButton("Oylik maoshni tahrirlash", callback_data=f"modify_monthly_{worker_id}")
+        types.InlineKeyboardButton("To'lovlarni tahrirlash", callback_data=f"modifypayments_{worker_id}", style="primary"),
+        types.InlineKeyboardButton("Oylik maoshni tahrirlash", callback_data=f"modify_monthly_{worker_id}", style="primary")
     )
     await bot.send_message(callback_query.from_user.id,
                            f"Xodim (ID: {worker_id}) uchun maosh tahrirlash variantlarini tanlang:",
@@ -2415,7 +2412,7 @@ async def modify_payment_list_new(callback_query: types.CallbackQuery):
         amount_str = f"{float(p['amount']):,.0f}"
         text += f"🆔 {p['id']} | {date_str} {time_str} - <b>{amount_str} so'm</b>\n"
         keyboard.add(
-            types.InlineKeyboardButton(text=f"✏️ Tahrirlash (ID: {p['id']})", callback_data=f"change_{p['id']}")
+            types.InlineKeyboardButton(text=f"✏️ Tahrirlash (ID: {p['id']})", callback_data=f"change_{p['id']}", style="primary")
         )
     await bot.send_message(callback_query.from_user.id, text, reply_markup=keyboard, parse_mode="HTML")
     await callback_query.answer()
@@ -2699,7 +2696,7 @@ async def send_stats_years(msg_obj: types.Message, admin_tg_id: int, page: int =
 
     if not items:
         kb = types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main")
+            types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary")
         )
         return await safe_edit_text(msg_obj, "Hozircha statistik yozuvlar kiritilmagan.", reply_markup=kb)
 
@@ -2775,8 +2772,8 @@ async def stats_usage_months(callback_query: types.CallbackQuery):
 
     kb = types.InlineKeyboardMarkup(row_width=3)
     for record in records:
-        kb.insert(types.InlineKeyboardButton(record['m'], callback_data=f"statsm_{record['m']}"))
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="stats_usage"))
+        kb.insert(types.InlineKeyboardButton(record['m'], callback_data=f"statsm_{record['m']}", style="primary"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="stats_usage", style="primary"))
     await callback_query.message.edit_text(f"{year} yilidagi oylar:", reply_markup=kb)
     await callback_query.answer()
 
@@ -2883,8 +2880,8 @@ async def stats_months_back(callback_query: types.CallbackQuery):
 
     kb = types.InlineKeyboardMarkup(row_width=3)
     for record in records:
-        kb.insert(types.InlineKeyboardButton(record['m'], callback_data=f"statsm_{record['m']}"))
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="stats_usage"))
+        kb.insert(types.InlineKeyboardButton(record['m'], callback_data=f"statsm_{record['m']}", style="primary"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="stats_usage", style="primary"))
     await callback_query.message.edit_text(f"{year} yilidagi oylar:", reply_markup=kb)
     await callback_query.answer()
 
@@ -3303,7 +3300,7 @@ async def manual_attendance_start(callback_query: types.CallbackQuery, state: FS
 
     kb = InlineKeyboardMarkup(row_width=2)
     for worker in workers:
-        kb.insert(InlineKeyboardButton(_format_worker_branch_label(worker), callback_data=f"manual_worker_{worker['id']}"))
+        kb.insert(InlineKeyboardButton(_format_worker_branch_label(worker), callback_data=f"manual_worker_{worker['id']}", style="primary"))
 
     await callback_query.message.edit_text("Qaysi xodim uchun davomat kiritmoqchisiz?", reply_markup=kb)
     await AdminManualAttendance.choosing_worker.set()

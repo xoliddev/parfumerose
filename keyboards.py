@@ -26,9 +26,9 @@ def get_weekday_select_menu() -> types.InlineKeyboardMarkup:
     from database import WEEKDAYS_UZ
     kb = types.InlineKeyboardMarkup(row_width=2)
     for i, name in enumerate(WEEKDAYS_UZ):
-        kb.add(types.InlineKeyboardButton(name, callback_data=f"rest_select_{i}"))
-    kb.add(types.InlineKeyboardButton("❌ Dam olish kunisiz", callback_data="rest_select_none"))
-    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra"))
+        kb.add(types.InlineKeyboardButton(name, callback_data=f"rest_select_{i}", style="primary"))
+    kb.add(types.InlineKeyboardButton("❌ Dam olish kunisiz", callback_data="rest_select_none", style="danger"))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="admin_extra", style="primary"))
     return kb
 
 
@@ -39,7 +39,7 @@ def get_weekday_select_menu() -> types.InlineKeyboardMarkup:
 def make_mystats_years_keyboard(years: list[int]) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=3)
     for y in years:
-        kb.insert(InlineKeyboardButton(text=str(y), callback_data=f"mystats:year:{y}"))
+        kb.insert(InlineKeyboardButton(text=str(y), callback_data=f"mystats:year:{y}", style="primary"))
     return kb
 
 
@@ -48,6 +48,5 @@ def make_mystats_months_keyboard(months: list[tuple[int, str]]) -> InlineKeyboar
     for m_num, m_name in months:
         kb.insert(InlineKeyboardButton(
             text=m_name,
-            callback_data=f"mystats:month:{m_num}"
-        ))
+            callback_data=f"mystats:month:{m_num}", style="primary"))
     return kb

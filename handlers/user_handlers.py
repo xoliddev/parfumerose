@@ -291,7 +291,7 @@ async def universal_start(message: types.Message, state: FSMContext):
 
     if not row:
         kb = types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("Xodim bo'lish", callback_data="request_join")
+            types.InlineKeyboardButton("Xodim bo'lish", callback_data="request_join", style="primary")
         )
         await message.answer(
             "Assalomu alaykum, siz xodimlar ro‘yxatida topilmadingiz.\n\n"
@@ -889,7 +889,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
         if dist > ALLOWED_RADIUS:
             kb = types.InlineKeyboardMarkup(row_width=1)
             for title, cmd in quick_reasons:
-                kb.add(types.InlineKeyboardButton(title, callback_data=f"qreason_{cmd}"))
+                kb.add(types.InlineKeyboardButton(title, callback_data=f"qreason_{cmd}", style="primary"))
             await message.reply(
                 "Siz ishxonadan uzoqdasiz. Sababni tanlang:",
                 reply_markup=kb

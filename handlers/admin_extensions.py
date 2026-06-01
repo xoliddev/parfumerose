@@ -387,9 +387,9 @@ async def admin_add_worker_tg_id(message: types.Message, state: FSMContext):
         await state.update_data(new_worker_branch_id=preferred_branch_id)
         kb = types.InlineKeyboardMarkup(row_width=3)
         kb.add(
-            types.InlineKeyboardButton("Kunlik", callback_data="addworker_pay:daily"),
-            types.InlineKeyboardButton("Haftalik", callback_data="addworker_pay:weekly"),
-            types.InlineKeyboardButton("Oylik", callback_data="addworker_pay:monthly"),
+            types.InlineKeyboardButton("Kunlik", callback_data="addworker_pay:daily", style="primary"),
+            types.InlineKeyboardButton("Haftalik", callback_data="addworker_pay:weekly", style="primary"),
+            types.InlineKeyboardButton("Oylik", callback_data="addworker_pay:monthly", style="primary"),
         )
         await message.reply("To'lov turini tanlang:", reply_markup=kb)
         return
@@ -425,9 +425,9 @@ async def admin_add_worker_branch(callback_query: types.CallbackQuery, state: FS
     await state.update_data(new_worker_branch_id=branch_id)
     kb = types.InlineKeyboardMarkup(row_width=3)
     kb.add(
-        types.InlineKeyboardButton("Kunlik", callback_data="addworker_pay:daily"),
-        types.InlineKeyboardButton("Haftalik", callback_data="addworker_pay:weekly"),
-        types.InlineKeyboardButton("Oylik", callback_data="addworker_pay:monthly"),
+        types.InlineKeyboardButton("Kunlik", callback_data="addworker_pay:daily", style="primary"),
+        types.InlineKeyboardButton("Haftalik", callback_data="addworker_pay:weekly", style="primary"),
+        types.InlineKeyboardButton("Oylik", callback_data="addworker_pay:monthly", style="primary"),
     )
     await callback_query.message.edit_text("To'lov turini tanlang:", reply_markup=kb)
     await callback_query.answer()
