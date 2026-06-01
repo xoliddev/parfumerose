@@ -107,6 +107,10 @@
     <li><b>👮 Adminlar uchun</b> — boshqarish, hisobot, AI yordamchi</li>
     <li><b>👑 Katta admin</b> — filial va adminlar</li>
     <li><b>🏢 Filiallar</b> — har biri alohida</li>
+    <li><b>🪪 Xodim kartasi</b> — har bir admin tugmasi</li>
+    <li><b>💵 Maosh kartasi</b> — maosh/to'lov tugmalari</li>
+    <li><b>⚙️ Sozlamalar va buyruqlar</b> (/start, /maoshim, …)</li>
+    <li><b>📑 To'liq tugmalar indeksi</b></li>
     <li><b>❓ Savol-javob</b> va <b>🆘 Muammo bo'lsa</b></li>
   </ol></div>
 
@@ -369,9 +373,104 @@
   <div class="tip"><span class="i">🔒</span><div>Ikki filial bir-biriga <b>aralashmaydi</b> — xavfsiz va tartibli!</div></div>
 </section>
 
+<!-- ADMIN: XODIM KARTASI (BATAFSIL) -->
+<section>
+  <div class="sec-head sec-adm"><span class="ico">🪪</span><h2>9. Xodim kartasi (har bir tugma)</h2></div>
+  <p class="lead">«👥 Xodimlar» → ro'yxatdan birini tanlasangiz, <b>xodim kartasi</b> ochiladi. Undagi har bir tugma:</p>
+  <div class="grid">
+    <div class="btncard c-blue"><div class="bt">📋 Ko'rish</div><div class="bd">Xodimning to'liq ma'lumoti: ism, filial, maosh, ish vaqti, bugungi holat</div></div>
+    <div class="btncard c-blue"><div class="bt">✏️ Tahrirlash</div><div class="bd">Ism, ish vaqti, kunlik soatni o'zgartirish menyusi</div></div>
+    <div class="btncard c-purple"><div class="bt">🏢 Filialni o'zgartirish</div><div class="bd"><i>(faqat katta admin)</i> xodimni boshqa filialga ko'chirish</div></div>
+    <div class="btncard c-red"><div class="bt">🗑 O'chirish</div><div class="bd">Xodimni ro'yxatdan o'chirish</div></div>
+  </div>
+  <h4 class="mini">Shu yerda qo'lda davomat tugmalari ham bor:</h4>
+  <div class="grid">
+    <div class="btncard c-green"><div class="bt">✅ Keldi</div><div class="bd">Ishga keldi deb belgilash</div></div>
+    <div class="btncard c-red"><div class="bt">🔴 Ketdi</div><div class="bd">Ishdan ketdi deb belgilash</div></div>
+    <div class="btncard c-red"><div class="bt">🌙 Dam</div><div class="bd">Bugun dam oldi</div></div>
+    <div class="btncard c-orange"><div class="bt">🎓 O'qishga ketdi / qaytdi</div><div class="bd">O'qish holatini belgilash</div></div>
+  </div>
+
+  <h3 class="block">✏️ «Tahrirlash» ichidagi tugmalar</h3>
+  <div class="grid">
+    <div class="btncard c-blue"><div class="bt">✏️ Ish vaqtini belgilash/o'zgartirish</div><div class="bd">Ish boshlanish va tugash vaqtini kiritasiz</div></div>
+    <div class="btncard c-blue"><div class="bt">🕒 Kunlik ish soatini tahrirlash</div><div class="bd">Kuniga necha soat ishlashini o'zgartirasiz</div></div>
+    <div class="btncard c-red"><div class="bt">❌ Ish vaqtini bekor qilish</div><div class="bd">Belgilangan ish vaqtini olib tashlaydi</div></div>
+  </div>
+
+  <h3 class="block">🏢 Xodimni boshqa filialga ko'chirish</h3>
+  <p>«🏢 Filialni o'zgartirish» → yangi filialni tanlaysiz, so'ng:</p>
+  <div class="grid">
+    <div class="btncard c-blue"><div class="bt">Barcha eski yozuvlar bilan</div><div class="bd">Xodimning oldingi davomat tarixi ham yangi filialga o'tadi</div></div>
+    <div class="btncard c-green"><div class="bt">Faqat bundan keyin</div><div class="bd">Eski tarix tegmaydi; faqat yangi kunlardan yangi filial hisoblanadi</div></div>
+  </div>
+</section>
+
+<!-- ADMIN: MAOSH KARTASI (BATAFSIL) -->
+<section>
+  <div class="sec-head sec-adm"><span class="ico">💵</span><h2>10. Maosh kartasi (har bir tugma)</h2></div>
+  <p class="lead">«💰 Maoshlar» → yil → oy → xodimni tanlaganingizda, maosh kartasi ochiladi:</p>
+  <div class="grid">
+    <div class="btncard c-blue"><div class="bt">📌 Maosh tayinlash</div><div class="bd">Xodimga oylik maosh miqdorini belgilaysiz</div></div>
+    <div class="btncard c-green"><div class="bt">➕ To'lov qo'shish</div><div class="bd">Avans yoki maosh to'lovini yozasiz</div></div>
+    <div class="btncard c-blue"><div class="bt">Oylik maoshni tahrirlash</div><div class="bd">Tayinlangan maoshni o'zgartirasiz</div></div>
+    <div class="btncard c-blue"><div class="bt">📋 To'lovlar tafsiloti</div><div class="bd">Shu oygi barcha to'lovlar ro'yxati</div></div>
+    <div class="btncard c-blue"><div class="bt">To'lovlarni tahrirlash</div><div class="bd">Har bir to'lovni ✏️ tahrirlash yoki 🗑 o'chirish</div></div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div class="txt"><b>📌 Maosh tayinlash</b> → miqdorni yozasiz (masalan: 3000000).</div></div>
+    <div class="step"><div class="num">2</div><div class="txt"><b>➕ To'lov qo'shish</b> → to'langan summani yozasiz → bot qolganini hisoblaydi.</div></div>
+    <div class="step"><div class="num">3</div><div class="txt">Xato bo'lsa <b>To'lovlarni tahrirlash</b> orqali tuzatasiz yoki o'chirasiz.</div></div>
+  </div>
+  <div class="note"><span class="i">📅</span><div>Hisobotlar «Haftalik / Kunlik / Oylik» turlari bilan ko'rsatiladi; xodim qo'shishda ham to'lov turini (Kunlik / Haftalik / Oylik) tanlaysiz.</div></div>
+</section>
+
+<!-- ADMIN: SOZLAMALAR + BUYRUQLAR -->
+<section>
+  <div class="sec-head sec-adm"><span class="ico">⚙️</span><h2>11. Sozlamalar va buyruqlar</h2></div>
+  <h3 class="block">⏰ Ish soati vaqtlari va dam kuni</h3>
+  <p>«⏰ Ish soati vaqtlari» menyusida umumiy ish vaqti va <b>dam olish kunini</b> sozlaysiz:</p>
+  <div class="grid">
+    <div class="btncard c-blue"><div class="bt">📅 Hafta kunlari</div><div class="bd">Dushanba…Yakshanbadan dam kunini tanlash</div></div>
+    <div class="btncard c-red"><div class="bt">❌ Dam olish kunisiz</div><div class="bd">Dam kuni belgilamaslik</div></div>
+  </div>
+  <h3 class="block">📈 Bot foydalanuvchilari</h3>
+  <p>Kim botdan foydalanayotgani, kunma-kun faollik statistikasi.</p>
+
+  <h3 class="block">⌨️ Buyruqlar (matn bilan yoziladi)</h3>
+  <table class="faq">
+    <tr><td class="q">/start</td><td>Botni boshlash / o'z menyungizni ochish. <b>Eng asosiy buyruq.</b></td></tr>
+    <tr><td class="q">/maoshim</td><td><i>(xodim)</i> Maoshingizni tezda ko'rish.</td></tr>
+    <tr><td class="q">/mystats</td><td><i>(xodim)</i> Shaxsiy statistikangiz (yil/oy bo'yicha).</td></tr>
+    <tr><td class="q">/old_payments</td><td><i>(admin)</i> Eski to'lov yozuvlarini ko'rish.</td></tr>
+    <tr><td class="q">/help</td><td><i>(xodim)</i> Yordam — adminga xabar yozish.</td></tr>
+    <tr><td class="q">/cancel</td><td>Joriy amalni (masalan, yozish jarayonini) <b>bekor qilish</b>.</td></tr>
+  </table>
+</section>
+
+<!-- TO'LIQ TUGMALAR INDEKSI -->
+<section>
+  <div class="sec-head sec-intro"><span class="ico">📑</span><h2>12. To'liq tugmalar ro'yxati (indeks)</h2></div>
+  <p class="lead">Tezkor ma'lumotnoma — botdagi har bir tugma va u nima qiladi:</p>
+  <table class="faq">
+    <tr><td class="q">👷 Xodim tugmalari</td><td>🟢 Ishga keldim • 🔴 Ketyapman • 🌙 Dam • 🟠 O'qishga ketdim • 💰 Maoshim • 📊 Statistika • 🆘 Yordam • 🔄 Yangilash • 📍 Lokatsiyani qayta yuborish • Xodim bo'lish</td></tr>
+    <tr><td class="q">👮 Admin asosiy</td><td>👥 Xodimlar • 📅 Kunlik hisobot • 📆 Oylik hisobot • 💰 Maoshlar • 📈 Bot foydalanuvchilari • ⏰ Ish soati vaqtlari • ✅ Davomat • ➕ Xodim qo'shish</td></tr>
+    <tr><td class="q">🪪 Xodim kartasi</td><td>📋 Ko'rish • ✏️ Tahrirlash • 🏢 Filialni o'zgartirish • 🗑 O'chirish • ✅ Keldi • 🔴 Ketdi • 🌙 Dam • 🎓 O'qish</td></tr>
+    <tr><td class="q">✏️ Tahrirlash ichida</td><td>✏️ Ish vaqtini belgilash/o'zgartirish • 🕒 Kunlik ish soatini tahrirlash • ❌ Ish vaqtini bekor qilish</td></tr>
+    <tr><td class="q">💵 Maosh kartasi</td><td>📌 Maosh tayinlash • ➕ To'lov qo'shish • Oylik maoshni tahrirlash • 📋 To'lovlar tafsiloti • To'lovlarni tahrirlash (✏️/🗑)</td></tr>
+    <tr><td class="q">🏢 Filialga ko'chirish</td><td>Barcha eski yozuvlar bilan • Faqat bundan keyin</td></tr>
+    <tr><td class="q">➕ Xodim qo'shishda</td><td>To'lov turi: Kunlik • Haftalik • Oylik</td></tr>
+    <tr><td class="q">📨 Kelmaganlik</td><td>Sababli • Sababsiz <i>(adminda)</i></td></tr>
+    <tr><td class="q">🆕 Ariza</td><td>Qabul qilish • Rad etish <i>(adminda)</i></td></tr>
+    <tr><td class="q">👑 Katta admin</td><td>Filialni almashtirish • Adminlar → Katta adminlar / Filial adminlari → ➕ qo'shish • 🗑 olib tashlash • ✅ Tasdiqlash</td></tr>
+    <tr><td class="q">⌨️ Buyruqlar</td><td>/start • /maoshim • /mystats • /old_payments • /help • /cancel</td></tr>
+  </table>
+  <div class="tip"><span class="i">✅</span><div>Endi botdagi <b>har bir tugma va buyruq</b> shu qo'llanmada bor. Adashsangiz — bu sahifaga qaytib qarang.</div></div>
+</section>
+
 <!-- FAQ + TROUBLESHOOTING -->
 <section>
-  <div class="sec-head sec-faq"><span class="ico">❓</span><h2>8. Savol-javob</h2></div>
+  <div class="sec-head sec-faq"><span class="ico">❓</span><h2>13. Savol-javob</h2></div>
   <table class="faq">
     <tr><td class="q">Lokatsiya yuborsam ham «qabul qilinmadi» deyapti?</td><td>Siz <b>oddiy</b> lokatsiya yuborgansiz. <b>Jonli lokatsiya</b> kerak: 📎 → Location → «Share My Live Location».</td></tr>
     <tr><td class="q">Do'kondan uzoqda turib belgilab bo'ladimi?</td><td>Yo'q. Davomat faqat <b>do'kon hududidan</b> belgilanadi. Do'konga kelib belgilang.</td></tr>
