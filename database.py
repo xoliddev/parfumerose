@@ -339,7 +339,6 @@ async def add_user(tg_id: int, full_name: str, username: Optional[str] = None, m
             tg_id,
             full_name,
             username,
-            username,
             monthly_salary,
             daily_work_hours,
             branch_id,
