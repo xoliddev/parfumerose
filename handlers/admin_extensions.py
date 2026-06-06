@@ -382,7 +382,17 @@ async def admin_add_worker_tg_id(message: types.Message, state: FSMContext):
         return await message.reply("Telegram ID raqam bo'lishi kerak. Telefoni yo'q bo'lsa, 0 yuboring.")
 
     await state.update_data(new_worker_tg_id=tg_id if tg_id > 0 else None)
-    branches, preferred_branch_id = await _get_branch_prompt_data(message.from_user.id)
+
+    # Katta admin barcha filiallarni boshqaradi -> joriy tanlangan filialdan qat'i
+    # nazar HAR DOIM "qaysi filial?" deb so'raymiz. Oddiy filial admini esa yagona
+    # filialga ega bo'lgani uchun avtomatik biriktiriladi.
+    is_superadmin = message.from_user.id in SUPERADMINS
+    if is_superadmin:
+        branches = await db.get_active_branches()
+        preferred_branch_id = None
+    else:
+        branches, preferred_branch_id = await _get_branch_prompt_data(message.from_user.id)
+
     if preferred_branch_id:
         await state.update_data(new_worker_branch_id=preferred_branch_id)
         kb = types.InlineKeyboardMarkup(row_width=3)
@@ -395,17 +405,26 @@ async def admin_add_worker_tg_id(message: types.Message, state: FSMContext):
         return
 
     if not branches:
-        if message.from_user.id in SUPERADMINS:
+        if is_superadmin:
             return await message.reply(
-                "Avval ishlaydigan filialni tanlang. /start bosing yoki admin menyusidagi "
-                "'Filialni almashtirish' tugmasidan foydalaning."
+                "Hozircha faol filial yo'q. Avval filial qo'shing yoki faollashtiring."
             )
         return await message.reply("Sizga biror filial biriktirilmagan. Avval filial sozlamalarini tekshiring.")
 
+    current_branch_id = (
+        await db.get_superadmin_selected_branch_id(message.from_user.id) if is_superadmin else None
+    )
     await AdminAddWorker.waiting_for_branch.set()
     await message.reply(
-        "Xodim qaysi filialga tegishli?",
-        reply_markup=build_branch_selection_keyboard(branches, "addworker_branch"),
+        "Xodim qaysi filialga biriktiriladi?"
+        + (
+            "\n(Joriy filial ✅ bilan belgilangan, lekin istalganini tanlashingiz mumkin.)"
+            if is_superadmin
+            else ""
+        ),
+        reply_markup=build_branch_selection_keyboard(
+            branches, "addworker_branch", current_branch_id=current_branch_id
+        ),
     )
 
 
@@ -419,7 +438,13 @@ async def admin_add_worker_branch(callback_query: types.CallbackQuery, state: FS
     except (IndexError, ValueError):
         return await callback_query.answer("Noto'g'ri filial.", show_alert=True)
 
-    if not await db.admin_can_access_branch(callback_query.from_user.id, branch_id):
+    # Katta admin istalgan FAOL filialga biriktira oladi; oddiy admin faqat o'ziga
+    # biriktirilgan filialga.
+    if callback_query.from_user.id in SUPERADMINS:
+        active_branch_ids = {int(b["id"]) for b in await db.get_active_branches()}
+        if branch_id not in active_branch_ids:
+            return await callback_query.answer("Bu filial faol emas yoki topilmadi.", show_alert=True)
+    elif not await db.admin_can_access_branch(callback_query.from_user.id, branch_id):
         return await callback_query.answer("Bu filial sizga biriktirilmagan.", show_alert=True)
 
     await state.update_data(new_worker_branch_id=branch_id)
