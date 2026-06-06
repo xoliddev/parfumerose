@@ -1308,45 +1308,32 @@ async def process_admin_accept(message: types.Message, state: FSMContext):
     elif app:
         username_val = app.get("username")
 
-    branch_choices = await db.list_branches_for_admin(message.from_user.id)
-    preferred_branch_id = await db.get_admin_preferred_branch_id(message.from_user.id)
-    if not preferred_branch_id and not branch_choices:
-        if message.from_user.id in SUPERADMINS:
-            await message.reply(
-                "Avval ishlaydigan filialni tanlang. /start bosing yoki admin menyusidagi "
-                "'Filialni almashtirish' tugmasidan foydalaning."
-            )
-        else:
-            await message.reply("Sizga biror filial biriktirilmagan. Avval filial sozlamalarini tekshiring.")
-        return
-
-    if not preferred_branch_id:
-        await state.update_data(
-            pending_final_name=new_name,
-            pending_username=username_val,
-        )
-        await AdminAcceptPending.waiting_for_branch.set()
+    # Bu oqimga faqat katta admin (superadmin) kiradi va u istalgan faol filialga
+    # xodim biriktira oladi. Shuning uchun joriy tanlangan filialdan qat'i nazar,
+    # HAR DOIM "qaysi filialga biriktiramiz?" deb so'raymiz (avval bu so'rov joriy
+    # filial avtomatik olingani uchun tushib qolar edi).
+    branch_choices = await db.get_active_branches()
+    if not branch_choices:
         await message.reply(
-            "Bu xodim qaysi filialga tegishli?",
-            reply_markup=build_branch_selection_keyboard(branch_choices, "pending_accept_branch"),
+            "Hozircha faol filial yo'q. Avval filial qo'shing yoki faollashtiring, "
+            "so'ngra xodimni qabul qiling."
         )
         return
 
-    await db.add_user(
-        tg_id=pending_user_id,
-        full_name=new_name,
-        username=username_val,
-        branch_id=preferred_branch_id,
+    current_branch_id = await db.get_superadmin_selected_branch_id(message.from_user.id)
+    await state.update_data(
+        pending_final_name=new_name,
+        pending_username=username_val,
     )
-    if app:
-        await db.update_application_status(app['id'], 'accepted')
-
-    await state.update_data(final_name=new_name)
-    await AdminAcceptPending.waiting_for_start_time.set()
+    await AdminAcceptPending.waiting_for_branch.set()
     await message.reply(
-        "Yangi xodimning ish boshlash vaqtini kiriting. (Masalan: 09:00)\n"
-        "Agar hozir kiritmasangiz, 'O'tkazib yuborish' tugmasini bosing.",
-        reply_markup=_build_skip_reply_keyboard(),
+        "Bu xodim qaysi filialga biriktiriladi?\n"
+        "(Joriy filial ✅ bilan belgilangan, lekin istalganini tanlashingiz mumkin.)",
+        reply_markup=build_branch_selection_keyboard(
+            branch_choices,
+            "pending_accept_branch",
+            current_branch_id=current_branch_id,
+        ),
     )
 
 
@@ -1360,8 +1347,11 @@ async def pending_accept_branch(callback_query: types.CallbackQuery, state: FSMC
     except (IndexError, ValueError):
         return await callback_query.answer("Noto'g'ri filial.", show_alert=True)
 
-    if not await db.admin_can_access_branch(callback_query.from_user.id, branch_id):
-        return await callback_query.answer("Bu filial sizga biriktirilmagan.", show_alert=True)
+    # Katta admin yangi xodimni istalgan FAOL filialga biriktira oladi
+    # (joriy tanlangan filial bilan cheklanmaydi). Shu sabab faollikni tekshiramiz.
+    active_branch_ids = {int(b["id"]) for b in await db.get_active_branches()}
+    if branch_id not in active_branch_ids:
+        return await callback_query.answer("Bu filial faol emas yoki topilmadi.", show_alert=True)
 
     data = await state.get_data()
     pending_user_id = data.get("pending_user_id")
