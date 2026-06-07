@@ -243,8 +243,16 @@ def _format_worker_branch_label(worker: dict) -> str:
     return worker["full_name"]
 
 
-def _format_worker_option_label(worker: dict) -> str:
-    return f"{worker['id']}) {_format_worker_branch_label(worker)}"
+def _format_worker_option_label(worker: dict, position: int | None = None) -> str:
+    """Tugma matni: '<pos>) <ism> [filial]'.
+
+    position berilsa — pozitsion raqam (1, 2, 3...) ishlatamiz (sahifada
+    tartibli). Berilmasa — DB id'siga qaytadi (eski xulq). Pozitsion raqam
+    deyarli har doim afzal: DB id'lari boshqa filiallarda yoki o'chirilgan
+    yozuvlarda bo'lib, "1)" tushib qolishi mumkin.
+    """
+    prefix = f"{position}) " if position is not None else f"{worker['id']}) "
+    return f"{prefix}{_format_worker_branch_label(worker)}"
 
 
 def _build_worker_branch_picker_keyboard(
@@ -1039,25 +1047,39 @@ async def handle_salary_year(callback_query: types.CallbackQuery):
     await callback_query.answer()
 
 
-async def _salary_workers_items(admin_tg_id: int, year: str, month: str) -> list[tuple[str, str]]:
+async def _salary_workers_items(
+    admin_tg_id: int,
+    year: str,
+    month: str,
+    page: int,
+    per_page: int,
+) -> tuple[list[tuple[str, str]], int]:
+    """Joriy sahifa items + jami xodimlar soni. Slicing + pozitsion raqam."""
     rows = await db.list_active_workers_for_admin(admin_tg_id, order_by="id")
-    return [
-        (_format_worker_option_label(row), f"salary_worker_{row['id']}_{year}_{month}")
-        for row in rows
-    ] if rows else []
+    total = len(rows)
+    if not rows:
+        return [], 0
+    start = page * per_page
+    page_rows = rows[start : start + per_page]
+    items = [
+        (_format_worker_option_label(row, position=start + i + 1),
+         f"salary_worker_{row['id']}_{year}_{month}")
+        for i, row in enumerate(page_rows)
+    ]
+    return items, total
 
 
 async def send_salary_workers(msg_obj: types.Message, admin_tg_id: int, year: str, month: str, page: int = 0):
-    items = await _salary_workers_items(admin_tg_id, year, month)
-    total_workers = len(items)
+    per_page = 10
+    items, total_workers = await _salary_workers_items(admin_tg_id, year, month, page, per_page)
 
     kb = build_paginated_inline(
         items=items,
         page=page,
-        per_page=10,
+        per_page=per_page,
         page_prefix="salwp",
         back_cb=f"salary_year_{year}",
-        total_items=total_workers  # YANGI ARGUMENT
+        total_items=total_workers,
     )
     caption = f"{year}-{month} oyi uchun barcha xodimlar:"
     await safe_edit_text(msg_obj, caption, reply_markup=kb)
@@ -2018,8 +2040,12 @@ async def admin_work_hours_menu(callback_query: types.CallbackQuery):
         return
 
     kb = types.InlineKeyboardMarkup(row_width=2)
-    for row in rows:
-        kb.insert(types.InlineKeyboardButton(_format_worker_option_label(row), callback_data=f"editwh_{row['id']}", style="primary"))
+    for i, row in enumerate(rows, start=1):
+        kb.insert(types.InlineKeyboardButton(
+            _format_worker_option_label(row, position=i),
+            callback_data=f"editwh_{row['id']}",
+            style="primary",
+        ))
     kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
     await callback_query.message.edit_text("Ish vaqtlarini sozlash uchun xodimni tanlang:", reply_markup=kb)
     await callback_query.answer()
@@ -2558,10 +2584,12 @@ async def show_employees_in_day(callback_query: types.CallbackQuery):
         return await callback_query.answer()
 
     kb = types.InlineKeyboardMarkup(row_width=1)
-    for worker in workers:
+    for i, worker in enumerate(workers, start=1):
         kb.insert(types.InlineKeyboardButton(
-            text=_format_worker_option_label(dict(worker)),
-            callback_data=f"daily_details_{worker['id']}_{day}", style="primary"))
+            text=_format_worker_option_label(dict(worker), position=i),
+            callback_data=f"daily_details_{worker['id']}_{day}",
+            style="primary",
+        ))
 
     kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"month_{day[:7]}", style="primary"))
     await callback_query.message.edit_text(f"{day} da quyidagi xodimlar mavjud:", reply_markup=kb)
@@ -3089,21 +3117,28 @@ async def _stat_workers_items(admin_tg_id: int, month: str) -> list[tuple[str, s
                                       AND COALESCE(s.branch_id, w.branch_id) = ANY($2::int[])
                                     ORDER BY w.id ASC
                                     """, month, branch_scope)
-    return [(_format_worker_option_label(dict(row)), f"statsw_{row['id']}_{month}") for row in rows] if rows else []
+    return [dict(row) for row in rows] if rows else []
 
 
 async def send_stat_workers(msg_obj: types.Message, admin_tg_id: int, month: str, page: int = 0):
-    items = await _stat_workers_items(admin_tg_id, month)
-    total_workers_in_month = len(items)
+    per_page = 10
+    all_rows = await _stat_workers_items(admin_tg_id, month)
+    total_workers_in_month = len(all_rows)
+    start = page * per_page
+    page_rows = all_rows[start : start + per_page]
+    items = [
+        (_format_worker_option_label(row, position=start + i + 1),
+         f"statsw_{row['id']}_{month}")
+        for i, row in enumerate(page_rows)
+    ]
 
-    # --- O'ZGARISH SHU YERDA: argumentlar to'g'ri tartibda berildi ---
     kb = build_paginated_inline(
         items=items,
         page=page,
-        per_page=10,
-        page_prefix=f"stwpage_{month}",  # Sahifalash uchun prefiks
-        back_cb=f"statsy_{month[:4]}",  # Orqaga qaytish manzili
-        total_items=total_workers_in_month
+        per_page=per_page,
+        page_prefix=f"stwpage_{month}",
+        back_cb=f"statsy_{month[:4]}",
+        total_items=total_workers_in_month,
     )
     await safe_edit_text(msg_obj, f"{month} oyi uchun xodim tanlang:", reply_markup=kb)
 
@@ -3254,25 +3289,53 @@ async def stats_usage_one(callback_query: types.CallbackQuery, state: FSMContext
 
 # ==================== XODIMLAR RO‘YXATI PAGINATION ============================
 # ==================== XODIMLAR RO‘YXATI PAGINATION ============================
-async def _workers_items(admin_tg_id: int) -> list[tuple[str, str]]:
-    """Xodimlar ro'yxatini bazadan asinxron oladi."""
+async def _workers_items(
+    admin_tg_id: int,
+    page: int,
+    per_page: int,
+    hide_branch: bool,
+) -> list[tuple[str, str]]:
+    """Xodimlar ro'yxatining JORIY SAHIFASI tugmalari (paginatsiya + pozitsion raqam).
+
+    Avval butun ro'yxat 'id' bo'yicha qaytarilardi va build_paginated_inline
+    items'ni slice qilmagani uchun BARCHASI bir sahifada chiqardi — paginatsiya
+    aslida ishlamasdi. Endi shu yerda sahifa kesimi va 1, 2, 3... pozitsion
+    raqam beramiz (DB id'siga bog'liq emas, "1)" tushib qolmaydi).
+    """
     rows = await db.list_workers_for_admin(admin_tg_id, order_by="id")
-    return [(_format_worker_option_label(row), f"worker_{row['id']}") for row in rows] if rows else []
+    if not rows:
+        return []
+    start = page * per_page
+    page_rows = rows[start : start + per_page]
+    out: list[tuple[str, str]] = []
+    for i, row in enumerate(page_rows):
+        pos = start + i + 1
+        if hide_branch:
+            # Yuqorida sarlavhada filial nomi bor — tugmalarda takrorlash kerakmas
+            # (tugma qisqaradi → 2 ustun yaxshi joylanadi).
+            label = f"{pos}) {row['full_name']}"
+        else:
+            label = f"{pos}) {_format_worker_branch_label(row)}"
+        out.append((label, f"worker_{row['id']}"))
+    return out
 
 
 async def send_admin_workers(msg_obj: types.Message, admin_tg_id: int, page: int = 0):
-    items = await _workers_items(admin_tg_id)
-    total_workers = await db.count_workers_for_admin(admin_tg_id)
+    per_page = 10
     scope_branch = await db.get_admin_scope_branch(admin_tg_id)
+    # Admin scope-da bitta filial bo'lsa, har tugmada nomini takrorlamaymiz
+    hide_branch = scope_branch is not None
+    items = await _workers_items(admin_tg_id, page, per_page=per_page, hide_branch=hide_branch)
+    total_workers = await db.count_workers_for_admin(admin_tg_id)
     scope_suffix = f" - {scope_branch['name']}" if scope_branch else ""
 
     kb = build_paginated_inline(
         items=items,
         page=page,
-        per_page=10,
+        per_page=per_page,
         page_prefix="page",
         back_cb="workers:back",
-        total_items=total_workers  # YANGI ARGUMENT
+        total_items=total_workers,
     )
     text = f"Xodimlar ro‘yxati{scope_suffix}:" if items else "Hozircha xodimlar yo‘q."
     await safe_edit_text(msg_obj, text, reply_markup=kb)
