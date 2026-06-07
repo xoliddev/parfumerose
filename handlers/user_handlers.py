@@ -88,7 +88,7 @@ def is_late(start_str: str, tolerance_min: int) -> tuple[bool, int]:
 
 
 def next_day_message() -> str:
-    tom = datetime.datetime.now() + datetime.timedelta(days=1)
+    tom = datetime.datetime.now(tashkent_tz) + datetime.timedelta(days=1)
     return ("Yaxshi dam oling, dushanba ko‘rishguncha!"
             if tom.weekday() == 5 else  # Shanbadan keyin yakshanba
             "Yaxshi dam oling, ertaga ko‘rishguncha!")
@@ -573,7 +573,7 @@ async def employee_menu_callback(callback_query: types.CallbackQuery, state: FSM
     if action == "mystats":
         years = await db.get_user_distinct_years(callback_query.from_user.id)
         if not years:
-            years = [datetime.datetime.now().year]
+            years = [datetime.datetime.now(tashkent_tz).year]
         kb = make_mystats_years_keyboard(years)
         await callback_query.message.edit_text("Qaysi yil statistikangizni ko'rmoqchisiz?", reply_markup=kb)
         await MyStatsStates.SELECT_YEAR.set()
@@ -1208,7 +1208,7 @@ async def cmd_mystats(message: types.Message):
     years = await db.get_user_distinct_years(message.from_user.id)
 
     if not years:
-        years = [datetime.datetime.now().year]
+        years = [datetime.datetime.now(tashkent_tz).year]
 
     # Eslatma: make_mystats_years_keyboard funksiyasi o'zgartirilishi kerak (avvalgi javobda ko'rsatilgan)
     kb = make_mystats_years_keyboard(years)

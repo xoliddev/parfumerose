@@ -967,7 +967,7 @@ async def _salary_year_items() -> list[tuple[str, str]]:
                                    WHERE payment_date IS NOT NULL
                                    """)
     present = {rec['y'] for rec in records if rec['y']}
-    cur = datetime.datetime.now().year
+    cur = datetime.datetime.now(tashkent_tz).year
     recent = {cur - i for i in range(5)}
     years = sorted(present | recent, reverse=True)
     return [(str(y), f"salary_year_{y}") for y in years]
@@ -2052,8 +2052,8 @@ async def show_worker_work_hours(callback_query: types.CallbackQuery):
     w_end_str = row['work_end'] or '---'
 
     desc = (
-        f"<b>{row['id']}) {row['full_name']}</b>\n"
-        f"🏢 Filial: <b>{row['branch_name'] or 'Belgilanmagan'}</b>\n\n"
+        f"<b>{row['id']}) {html.escape(str(row['full_name']))}</b>\n"
+        f"🏢 Filial: <b>{html.escape(str(row['branch_name'] or 'Belgilanmagan'))}</b>\n\n"
         f"🕒 Kunlik ish soati: <b>{dw_str}</b>\n"
         f"⏰ Ish vaqti: <b>{w_start_str} - {w_end_str}</b>"
     )
@@ -2266,7 +2266,7 @@ async def save_daily_work_hours(message: types.Message, state: FSMContext):
     try:
         await bot.send_message(
             worker_tg,
-            f"Hurmatli {worker_name}, kunlik ish soatingiz endi <b>{new_time_str}</b>.\n(Oldingi: {format_hours(old_dw or 0.0)})",
+            f"Hurmatli {html.escape(str(worker_name))}, kunlik ish soatingiz endi <b>{new_time_str}</b>.\n(Oldingi: {format_hours(old_dw or 0.0)})",
             parse_mode="HTML"
         )
     except Exception as ex:
@@ -4422,7 +4422,7 @@ async def branch_admins_add_finish(message: types.Message, state: FSMContext):
             )
         if int(worker_branch_id) != int(branch_id):
             return await message.reply(
-                f"Bu TG ID {worker_record['full_name']} xodimiga tegishli va hozir <b>{worker_branch_name}</b> filialida.\n"
+                f"Bu TG ID {html.escape(str(worker_record['full_name']))} xodimiga tegishli va hozir <b>{html.escape(str(worker_branch_name))}</b> filialida.\n"
                 "Xodim filiali bilan admin filiali bir xil bo'lishi kerak.",
                 parse_mode="HTML",
             )

@@ -231,11 +231,19 @@ async def apply_worker_action_for_admin(
         session = await db.get_session_for_worker_on_date(worker_id, today)
         if not session or not session.get("arrival_time"):
             async with db.pool.acquire() as conn:
+                # Eski 'ketdi' qiymatlarini ham tozalaymiz (departure_time/total_hours/...).
+                # Aks holda kechagi KETDI qoldig'i bilan dashboard hali "ish yakunlangan"
+                # deb hisoblaydi (huddi user_handlers.py:731'dagi xato).
                 await conn.execute(
                     """
                     INSERT INTO work_sessions (user_id, date, arrival_time, session_daily_hours)
                     VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (user_id, date) DO UPDATE SET arrival_time = EXCLUDED.arrival_time
+                    ON CONFLICT (user_id, date) DO UPDATE SET
+                        arrival_time        = EXCLUDED.arrival_time,
+                        departure_time      = NULL,
+                        total_hours         = 0,
+                        late_reason         = NULL,
+                        session_daily_hours = EXCLUDED.session_daily_hours
                     """,
                     worker_id,
                     today,
