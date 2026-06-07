@@ -117,3 +117,7 @@ class AdminWorkGroup(StatesGroup):
 
 class WipeDataState(StatesGroup):
     waiting_for_confirmation = State()
+
+
+class SetBranchLocation(StatesGroup):
+    waiting_for_location = State()

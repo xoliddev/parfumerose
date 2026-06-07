@@ -685,6 +685,18 @@ async def clear_branch_work_log_group_id(branch_id: int) -> bool:
     return "UPDATE 1" in result
 
 
+async def set_branch_location(branch_id: int, latitude: float, longitude: float) -> bool:
+    """Filialning lat/lon koordinatasini yangilaydi (bot orqali, restart'da saqlanadi)."""
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE branches SET latitude = $1, longitude = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+            float(latitude),
+            float(longitude),
+            int(branch_id),
+        )
+    return "UPDATE 1" in result
+
+
 async def get_branch_work_log_group_id(branch_id: int) -> Optional[int]:
     """Filialning joriy bildirishnoma guruh ID'sini qaytaradi (yo'q bo'lsa None)."""
     async with pool.acquire() as conn:
@@ -1522,10 +1534,14 @@ async def ensure_attendance_v2_schema():
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (code) DO UPDATE SET
                     name = EXCLUDED.name,
-                    latitude = EXCLUDED.latitude,
-                    longitude = EXCLUDED.longitude,
                     radius = EXCLUDED.radius,
-                    work_log_group_id = EXCLUDED.work_log_group_id,
+                    -- latitude/longitude va work_log_group_id endi BOT orqali
+                    -- boshqariladi. Mavjud DB qiymatini saqlaymiz (env faqat
+                    -- birinchi yaratishda urug' bo'ladi). Aks holda restart'da
+                    -- env qiymati bot-sozlamalarni o'chirib yuborardi.
+                    latitude = COALESCE(branches.latitude, EXCLUDED.latitude),
+                    longitude = COALESCE(branches.longitude, EXCLUDED.longitude),
+                    work_log_group_id = COALESCE(NULLIF(branches.work_log_group_id, 0), EXCLUDED.work_log_group_id),
                     is_active = TRUE,
                     updated_at = CURRENT_TIMESTAMP
                 RETURNING id

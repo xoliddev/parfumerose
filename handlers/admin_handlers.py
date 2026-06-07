@@ -17,7 +17,7 @@ import database as db
 from states import (
     AdminAcceptPending, AdminUpdateWorker, AdminSetSalary, AdminAddSalaryPayment, AdminModifyPayment,
     AdminModifyMonthlySalary, AdminSetDailyHours, AdminSetWorkTime, AdminManualAttendance, AdminQuickAttendance, AdminBranchAdminSettings,
-    AdminSuperadminSettings, AdminContact, AdminWorkGroup
+    AdminSuperadminSettings, AdminContact, AdminWorkGroup, SetBranchLocation
 )
 from shared import (
     build_branch_selection_keyboard,
@@ -461,6 +461,125 @@ async def admin_contact_delete(callback_query: types.CallbackQuery, state: FSMCo
         parse_mode="HTML",
     )
     await callback_query.answer("O'chirildi.")
+
+
+# ===== Filial joylashuvi (lat/lon) — botdan o'zgartirish (faqat katta admin) =====
+#
+# Koordinata DB'da saqlanadi va restart'da yo'qolmaydi (init_db endi mavjud
+# qiymatni saqlaydi). Lokatsiya yuborish yoki "lat, lon" yozish mumkin.
+
+@dp.message_handler(commands=["filial_joylashuv", "branch_location"], state="*")
+async def branch_location_start(message: types.Message, state: FSMContext):
+    if message.from_user.id not in SUPERADMINS:
+        return
+    await state.finish()
+    branches = await db.get_active_branches()
+    if not branches:
+        return await message.reply("Faol filial yo'q.")
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for b in branches:
+        kb.add(types.InlineKeyboardButton(
+            f"🏢 {b['name']}  ({float(b['latitude']):.5f}, {float(b['longitude']):.5f})",
+            callback_data=f"setbranchloc:{b['id']}",
+            style="primary",
+        ))
+    await message.reply(
+        "📍 <b>Filial joylashuvini o'zgartirish</b>\n\n"
+        "Qaysi filialning koordinatasini yangilaymiz?",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("setbranchloc:"), state="*")
+async def branch_location_pick(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in SUPERADMINS:
+        return await callback_query.answer("Faqat katta admin uchun.", show_alert=True)
+    try:
+        branch_id = int(callback_query.data.split(":")[1])
+    except (ValueError, IndexError):
+        return await callback_query.answer("Noto'g'ri filial.", show_alert=True)
+    branch = await db.get_branch_by_id(branch_id)
+    if not branch:
+        return await callback_query.answer("Filial topilmadi.", show_alert=True)
+    await state.update_data(loc_branch_id=branch_id, loc_branch_name=branch["name"])
+    await SetBranchLocation.waiting_for_location.set()
+    await callback_query.message.edit_text(
+        f"🏢 <b>{html.escape(str(branch['name']))}</b> uchun yangi joylashuvni yuboring:\n\n"
+        f"Joriy: <code>{float(branch['latitude']):.6f}, {float(branch['longitude']):.6f}</code>\n\n"
+        "📍 <b>Telegram lokatsiyasini</b> yuboring (📎 → Location)\n"
+        "yoki koordinatani yozing: <code>40.754362, 72.357826</code>\n\n"
+        "Bekor qilish: /cancel",
+        parse_mode="HTML",
+    )
+    await callback_query.answer()
+
+
+@dp.message_handler(commands=["cancel"], state=SetBranchLocation.waiting_for_location)
+async def branch_location_cancel(message: types.Message, state: FSMContext):
+    await state.finish()
+    await message.reply("✅ Bekor qilindi.")
+
+
+@dp.message_handler(state=SetBranchLocation.waiting_for_location, content_types=types.ContentTypes.LOCATION)
+async def branch_location_from_geo(message: types.Message, state: FSMContext):
+    if message.from_user.id not in SUPERADMINS:
+        await state.finish()
+        return
+    loc = message.location
+    await _save_branch_location(message, state, loc.latitude, loc.longitude)
+
+
+@dp.message_handler(state=SetBranchLocation.waiting_for_location, content_types=types.ContentTypes.TEXT)
+async def branch_location_from_text(message: types.Message, state: FSMContext):
+    if message.from_user.id not in SUPERADMINS:
+        await state.finish()
+        return
+    txt = (message.text or "").strip()
+    if txt.lower().lstrip("/") == "cancel":
+        await state.finish()
+        return await message.reply("✅ Bekor qilindi.")
+    # "lat, lon" / "lat lon" / "lat;lon" — barchasini qabul qilamiz
+    parts = [p for p in txt.replace(";", ",").replace(" ", ",").split(",") if p.strip()]
+    try:
+        lat = float(parts[0])
+        lon = float(parts[1])
+    except (ValueError, IndexError):
+        return await message.reply(
+            "❌ Koordinatani o'qib bo'lmadi.\n"
+            "Masalan: <code>40.754362, 72.357826</code>\n"
+            "yoki Telegram lokatsiyasini yuboring.",
+            parse_mode="HTML",
+        )
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return await message.reply("❌ Koordinata diapazondan tashqarida (lat: -90..90, lon: -180..180).")
+    await _save_branch_location(message, state, lat, lon)
+
+
+async def _save_branch_location(message: types.Message, state: FSMContext, lat: float, lon: float):
+    data = await state.get_data()
+    branch_id = data.get("loc_branch_id")
+    name = data.get("loc_branch_name", "")
+    await state.finish()
+    if not branch_id:
+        return await message.reply("Filial topilmadi. /filial_joylashuv dan qaytadan boshlang.")
+    try:
+        ok = await db.set_branch_location(branch_id, lat, lon)
+    except Exception as exc:
+        logging.exception("set_branch_location xatosi: %s", exc)
+        return await message.reply(
+            f"❌ Saqlashda xatolik: <code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:150]}</code>",
+            parse_mode="HTML",
+        )
+    if not ok:
+        return await message.reply("❌ Saqlanmadi (filial topilmadi).")
+    await message.reply(
+        f"✅ <b>{html.escape(str(name))}</b> joylashuvi yangilandi:\n"
+        f"📍 <code>{lat:.6f}, {lon:.6f}</code>\n\n"
+        "Endi xodimlar shu nuqtaga yaqin (radius ichida) joydan kelish/ketish "
+        "belgilashlari mumkin. Bu o'zgarish restart'da ham saqlanadi.",
+        parse_mode="HTML",
+    )
 
 
 # ===== Bildirishnoma guruhi CRUD (filial-scoped) =====
