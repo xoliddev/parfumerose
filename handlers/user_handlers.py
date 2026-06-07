@@ -408,7 +408,7 @@ async def absence_review_callback(callback_query: types.CallbackQuery):
                 await callback_query.message.edit_reply_markup()
             except Exception:
                 pass
-            await notify_admins(
+            await notify_admins_and_group(
                 f"📌 {html.escape(callback_query.from_user.full_name)} {html.escape(worker['full_name'])}ni bugun {note}.",
                 worker_id=worker["id"],
             )
@@ -606,7 +606,7 @@ async def late_reason(message: types.Message, state: FSMContext):
 
     name = name_record['full_name'] if name_record else "Noma'lum xodim"
     worker_id = name_record['id'] if name_record else None
-    await notify_admins(
+    await notify_admins_and_group(
         f"⏰ <b>{html.escape(name)}</b> kech kelish sababini yozdi:\n\n<i>«{html.escape(txt)}»</i>",
         worker_id=worker_id,
     )
@@ -763,8 +763,8 @@ async def loc_handler(message: types.Message, state: FSMContext):
                 last_source="worker",
             )
 
-            await notify_admins(
-                f"{wname} ishga KELDI. ({now_dt_aware.astimezone().strftime('%H:%M:%S')})",
+            await notify_admins_and_group(
+                f"🟢 {wname} ishga KELDI. ({now_dt_aware.astimezone().strftime('%H:%M:%S')})",
                 worker_id=wid,
             )
             await message.answer(
@@ -833,11 +833,11 @@ async def loc_handler(message: types.Message, state: FSMContext):
         )
 
         admin_txt = (
-            f"{wname} ishxonadan KETDI.\n"
+            f"🔴 {wname} ishxonadan KETDI.\n"
             f"Kelish: {arr_dt.astimezone().strftime('%H:%M:%S')}, Ketish: {now_dt_aware.astimezone().strftime('%H:%M:%S')}\n"
             f"Ishlagan: {format_hours(total_f)}"
         )
-        await notify_admins(admin_txt, worker_id=wid)
+        await notify_admins_and_group(admin_txt, worker_id=wid)
 
         await conn.execute(
             """
@@ -907,7 +907,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
 
             late, late_min = is_late(w_start.strftime('%H:%M') if w_start else None, LATE_EARLY_TOLERANCE_MIN)
             if late:
-                await notify_admins(f"⚠️ {wname} ishga {late_min} daqiqa kech keldi.", worker_id=wid)
+                await notify_admins_and_group(f"⚠️ {wname} ishga {late_min} daqiqa kech keldi.", worker_id=wid)
                 await message.reply(
                     "Ishga kech keldingiz, iltimos, sababini yozing.",
                     reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
@@ -916,7 +916,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
                 await state.update_data(session_id=sess_id)
                 return
 
-            await notify_admins(
+            await notify_admins_and_group(
                 f"✅ {wname} ishga KELDI. ({now_dt_aware.astimezone().strftime('%H:%M:%S')})",
                 worker_id=wid,
             )
@@ -991,7 +991,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
             if forced and early_rs:
                 admin_txt += f"\nSabab: {early_rs}"
 
-            await notify_admins(admin_txt, worker_id=wid)
+            await notify_admins_and_group(admin_txt, worker_id=wid)
 
             await conn.execute(
                 "INSERT INTO attendance (user_id, name, latitude, longitude, distance, message, reason) VALUES ($1, $2, $3, $4, $5, $6, $7)",
@@ -1339,7 +1339,7 @@ async def execute_forward_to_admin(user_id: int, message_text: str):
         f"<b>Xodim:</b> {html.escape(worker_name)} (TG ID: {user_id})\n"
         f"<b>Sabab:</b> <i>«{html.escape(message_text)}»</i>"
     )
-    await notify_admins(admin_message, worker_id=worker_db_id)
+    await notify_admins_and_group(admin_message, worker_id=worker_db_id)
 
 
 # Bu yangi handler xodimlardan kelgan har qanday matnni qabul qiladi

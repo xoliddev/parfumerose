@@ -32,6 +32,7 @@ from shared import (
     build_absence_review_keyboard,
     register_admin_action_messages,
     notify_admins,
+    notify_admins_and_group,
 )
 
 # Barcha handlerlarimizni dispatcherga ro'yxatdan o'tkazish uchun import qilamiz
@@ -152,7 +153,7 @@ async def check_late_arrivals_job():
                 branch_text = f"⏰ <b>KECH QOLGANLAR HISOBOTI ({today}):</b>\n\n"
                 for emp in employees:
                     branch_text += f"👤 {emp['full_name']} - <b>{emp['status']}</b>\n"
-                await notify_admins(branch_text, branch_id=branch_id, parse_mode="HTML")
+                await notify_admins_and_group(branch_text, branch_id=branch_id, parse_mode="HTML")
 
     except Exception as e:
         logging.error(f"Kech qolganlarni tekshirishda (check_late_arrivals_job) xatolik: {e}")
@@ -201,7 +202,7 @@ async def check_absence_followup_job():
                     f"⚠️ {worker['full_name']} belgilangan vaqtdan {ABSENCE_REMINDER_DELAY_MIN} daqiqa o'tib ham "
                     f"start bosmadi.\nXodimga ogohlantirish yuborildi. Hozircha sabab yozilmagan."
                 )
-                sent_messages = await notify_admins(
+                sent_messages = await notify_admins_and_group(
                     admin_text,
                     reply_markup=build_absence_review_keyboard(worker["id"]),
                     worker_id=worker["id"],

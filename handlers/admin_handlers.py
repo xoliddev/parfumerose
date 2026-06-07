@@ -22,7 +22,7 @@ from states import (
 from shared import (
     build_branch_selection_keyboard,
     pending_requests,
-    notify_admins,
+    notify_admins_and_group,
     notify_selected_admins,
     build_paginated_inline,
     describe_admin_action_result,
@@ -1674,7 +1674,7 @@ async def process_admin_end_time(message: types.Message, state: FSMContext):
     except Exception as e:
         logging.error(f"Xodimga xabar yuborishda xatolik: {e}")
 
-    await notify_admins(
+    await notify_admins_and_group(
         f"✅ {actor_name} arizani qabul qildi: {final_name}",
         worker_id=worker_id,
     )
