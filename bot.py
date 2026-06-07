@@ -350,6 +350,35 @@ async def send_daily_backup_job():
             pass
 
 
+@dp.message_handler(commands=["backup"], state="*")
+async def manual_backup_command(message, state):
+    """Qo'lda backup chaqirish — istalgan vaqtda darhol backup olish uchun.
+
+    Faqat SUPERADMIN'lar uchun. Backup BACKUP_RECIPIENTS env'ga (yoki bo'sh bo'lsa
+    SUPERADMINS'ga) yuboriladi — buyruqni kim yuborgani emas.
+    """
+    if message.from_user.id not in SUPERADMINS:
+        return  # boshqa foydalanuvchilar uchun jimgina e'tiborsizlik
+
+    recipients = _resolve_backup_recipients()
+    if not recipients:
+        return await message.reply(
+            "⚠️ BACKUP_RECIPIENTS env ham, SUPERADMINS ham bo'sh — yuborib bo'lmaydi."
+        )
+
+    await message.reply(
+        "⏳ Backup tayyorlanmoqda...\n"
+        f"📤 Qabul qiluvchi: {len(recipients)} ta admin\n"
+        "⌛ Bir necha soniya kuting."
+    )
+    try:
+        await send_daily_backup_job()
+        await message.reply("✅ Backup yuborildi. Belgilangan admin(lar) lichkasini tekshiring.")
+    except Exception as exc:
+        logging.exception("Manual backup xatosi")
+        await message.reply(f"❌ Backup xatosi: <code>{type(exc).__name__}: {exc}</code>")
+
+
 def schedule_jobs():
     """Shaxsiy hisobot vazifalarini rejalashtiradi."""
     # Ertalabki hisobot (Dushanba-Shanba, soat 08:30 da)
