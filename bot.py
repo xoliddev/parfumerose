@@ -1,5 +1,6 @@
 # bot.py (asosiy ishga tushiruvchi fayl)
 
+import asyncio
 import logging
 import datetime
 import html
@@ -576,29 +577,56 @@ async def _start_health_server():
     logging.info("✅ Health-server ishga tushdi: 0.0.0.0:%s (Koyeb uxlatmasligi uchun)", port)
 
 
+async def _heartbeat_job():
+    """Har 5 daqiqada loglarga 'bot tirik' qatori — Koyeb dashboard'da
+    ko'rsatkich uchun. Worker'da bot crash bo'lmagani aniq bilinadi.
+    """
+    logging.info("💓 heartbeat — bot tirik va so'rovlarni kutmoqda.")
+
+
 async def on_startup(dispatcher):
     """Bot ishga tushganda bajariladigan amallar."""
     print("Bot ishga tushmoqda...")
 
-    # 0. Health-server (Koyeb web service uxlab qolmasligi uchun) — eng avval ishga tushadi
+    # 0. Health-server (web service uxlab qolmasligi uchun). Worker'da port
+    #    ochish shart emas, lekin band qilingani zarar bermaydi.
     try:
         await _start_health_server()
     except Exception as exc:
         logging.error("Health-server ishga tushmadi: %s", exc)
 
-    # 1. PostgreSQL bilan ulanishlar hovuzini (pool) yaratamiz
-    await db.create_pool()
+    # 1. PostgreSQL pool — RETRY bilan. Neon/Supabase ba'zan ulanish
+    #    vaqtinchalik yutib qo'yadi; 3 marta urinib ko'ramiz.
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            await db.create_pool()
+            last_exc = None
+            break
+        except Exception as exc:
+            last_exc = exc
+            logging.warning("create_pool urinish %d/3 muvaffaqiyatsiz: %s", attempt, exc)
+            await asyncio.sleep(2 * attempt)  # 2s, 4s, 6s
+    if last_exc is not None:
+        logging.error("DB pool yaratib bo'lmadi — bot baribir polling boshlaydi (handler'lar xato beradi).")
 
     # 2. Baza jadvallarini yaratamiz yoki tekshiramiz
-    await db.init_db()
+    try:
+        await db.init_db()
+    except Exception as exc:
+        logging.error("init_db xatosi: %s — bot baribir polling boshlaydi.", exc)
 
     # 3. Rejalashtirilgan vazifalarni qo'shamiz
     schedule_jobs()
 
-    # 4. Scheduler'ni ishga tushiramiz
+    # 4. Heartbeat — har 5 daqiqada (Koyeb log'da bot tirik ekanini ko'rish uchun)
+    scheduler.add_job(_heartbeat_job, trigger=CronTrigger(minute="*/5"))
+
+    # 5. Scheduler'ni ishga tushiramiz
     scheduler.start()
 
     print("Bot ishga tushdi. So'rovlarni kutmoqda...")
+    logging.info("✅ Bot tayyor — long-polling boshlandi.")
 
 
 async def on_shutdown(dispatcher):
@@ -619,14 +647,22 @@ async def on_shutdown(dispatcher):
 if __name__ == "__main__":
     from aiogram import executor
 
-    # `on_startup` va `on_shutdown` funksiyalarini executorga bog'laymiz
     print("🚀 Bot polling boshlanmoqda...")
     if not BOT_TOKEN:
-        print("❌ FATAL: BOT_TOKEN topilmadi! Iltimos .env faylni yoki Render sozlamalarini tekshiring.")
+        print("❌ FATAL: BOT_TOKEN topilmadi! Iltimos .env faylni yoki Koyeb env'larini tekshiring.")
         exit(1)
-    
-    # Kichik delay (Render loglarini ushlash uchun)
-    import time
-    time.sleep(2)
-    
-    executor.start_polling(dp, on_startup=on_startup, on_shutdown=on_shutdown, skip_updates=True)
+
+    # MUHIM: skip_updates=False (eski default emas) — agar bot restart bo'lsa,
+    # foydalanuvchining /start yoki boshqa xabarlari tashlab yuborilmaydi va
+    # qayta tushgach ishlanadi. Avval skip_updates=True edi — har restartda
+    # xabarlar yo'qolardi, foydalanuvchi "bot uxlayapti" deb hisoblardi.
+    executor.start_polling(
+        dp,
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+        skip_updates=False,
+        # timeout = uzun-polling timeout (sek). 30 sek — Telegram standard.
+        timeout=30,
+        # relax = qayta urinish orasidagi pauza (sek). Tarmoq xatosi bo'lsa.
+        relax=1.0,
+    )
