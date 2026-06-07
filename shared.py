@@ -324,6 +324,22 @@ def build_paginated_inline(
 
 
 
+async def dismiss_reply_keyboard(chat_id: int) -> None:
+    """ReplyKeyboardMarkup (chat pastidagi tugmalar)'ni jimgina yo'qotadi.
+
+    Telegram'da reply keyboard'ni olib tashlash uchun ReplyKeyboardRemove bilan
+    biror xabar yuborish KERAK. Foydalanuvchiga ko'rinmasligi uchun ko'rinmas
+    belgi (\\u2063) yuboramiz va darhol o'chiramiz — natijada ekran toza,
+    klaviatura yo'qoladi.
+    """
+    try:
+        from aiogram import types as _t
+        msg = await bot.send_message(chat_id, "⁣", reply_markup=_t.ReplyKeyboardRemove())
+        await bot.delete_message(chat_id, msg.message_id)
+    except Exception:
+        pass
+
+
 PAY_TYPE_LABELS = {
     "daily": ("🌞", "Kunlik", "kun"),
     "weekly": ("📅", "Haftalik", "hafta"),

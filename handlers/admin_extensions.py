@@ -11,6 +11,7 @@ from loader import dp
 from shared import (
     build_admin_home_payload,
     build_branch_selection_keyboard,
+    dismiss_reply_keyboard,
     has_admin_operating_branch,
     format_admin_actor,
     notify_admins,
@@ -115,6 +116,9 @@ async def _finish_admin_add_worker(message: types.Message, state: FSMContext):
             f"Ish vaqti: {_format_schedule_text(start_text, end_text)}\n"
             f"Holati: {phone_text}"
         )
+
+        # Oqim tugadi — "O'tkazib yuborish" reply klaviaturasini olib tashlaymiz.
+        await dismiss_reply_keyboard(message.chat.id)
 
         # Asosiy menyu klaviaturasini olishda xato bo'lsa ham, xulosa matni
         # baribir yuborilsin (xodim allaqachon yaratilgan).

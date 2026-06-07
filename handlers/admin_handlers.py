@@ -26,6 +26,7 @@ from shared import (
     notify_selected_admins,
     build_paginated_inline,
     describe_admin_action_result,
+    dismiss_reply_keyboard,
     format_admin_actor,
     format_pay_status,
     format_payment_kind,
@@ -1764,7 +1765,9 @@ async def process_admin_end_time(message: types.Message, state: FSMContext):
             worker_text += f"Ish vaqti: {schedule_text}.\n"
             worker_text += "Endi /start bosib botdan foydalanishingiz mumkin."
 
-        await message.reply(reply_text, reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True))
+        # Oqim tugadi — "O'tkazib yuborish" reply klaviaturasini olib tashlaymiz
+        await dismiss_reply_keyboard(message.chat.id)
+        await message.reply(reply_text)
         try:
             await bot.send_message(pending_user_id, worker_text)
         except Exception as e:
