@@ -26,7 +26,7 @@ from aiogram.utils.exceptions import (
 
 # Ma'lumotlar bazasi bilan ishlash uchun kerakli funksiyalar
 import database as db
-from config import ABSENCE_REMINDER_DELAY_MIN, BOT_TOKEN
+from config import ABSENCE_REMINDER_DELAY_MIN, BOT_TOKEN, SUPERADMINS
 from states import UserAttendance
 from shared import (
     build_absence_review_keyboard,
@@ -244,12 +244,123 @@ async def check_absence_followup_job():
         logging.error(f"Kelmaganlik reminder job xatoligi: {e}")
 
 
+def _resolve_backup_recipients() -> list[int]:
+    """Backup faylini kim oladi?
+
+    BACKUP_RECIPIENTS env (vergulli tg_id'lar) yoki SUPERADMINS — agar env bo'sh.
+    Bu — admin'lar Telegram ID'lari (chat_id ham shu, lichkaga yuboriladi).
+    """
+    raw = os.getenv("BACKUP_RECIPIENTS", "").strip()
+    if raw:
+        ids = []
+        for part in raw.replace(";", ",").split(","):
+            part = part.strip()
+            if part.lstrip("-").isdigit():
+                ids.append(int(part))
+        if ids:
+            return ids
+    return list(SUPERADMINS)
+
+
+async def send_daily_backup_job():
+    """Har kuni ertalab PostgreSQL bazasining to'liq nusxasini admin(lar)ga lichkaga yuboradi.
+
+    Mantiq: pg_dump $DATABASE_URL | gzip > /tmp/parfumerose_YYYY-MM-DD.sql.gz, so'ng
+    har bir qabul qiluvchiga send_document. Telegram bot fayl limiti 50 MB — bazamiz
+    bundan ancha kichik. Xato bo'lsa — log + adminlarga matnli xabar.
+    """
+    import asyncio
+    import gzip
+    import shutil
+    import tempfile
+
+    recipients = _resolve_backup_recipients()
+    if not recipients:
+        logging.warning("Backup: hech qanday qabul qiluvchi yo'q (SUPERADMINS bo'sh).")
+        return
+
+    database_url = os.getenv("DATABASE_URL", "")
+    if not database_url:
+        logging.error("Backup: DATABASE_URL topilmadi.")
+        return
+
+    today_str = datetime.date.today().isoformat()
+    tmp_dir = tempfile.mkdtemp(prefix="pgbackup_")
+    sql_path = os.path.join(tmp_dir, f"parfumerose_{today_str}.sql")
+    gz_path = sql_path + ".gz"
+
+    try:
+        # 1) pg_dump → sql fayl
+        proc = await asyncio.create_subprocess_exec(
+            "pg_dump",
+            "--no-owner",
+            "--no-privileges",
+            "--clean",
+            "--if-exists",
+            "-f", sql_path,
+            database_url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr_bytes = await proc.communicate()
+        if proc.returncode != 0:
+            err = (stderr_bytes or b"").decode("utf-8", errors="replace")[:500]
+            logging.error("Backup: pg_dump xatolik (%s): %s", proc.returncode, err)
+            for tg_id in recipients:
+                try:
+                    await bot.send_message(
+                        tg_id,
+                        f"⚠️ Kunlik backup OLINMADI ({today_str}).\nXato: <code>{err}</code>",
+                    )
+                except Exception:
+                    pass
+            return
+
+        # 2) gzip bilan siqamiz
+        with open(sql_path, "rb") as f_in, gzip.open(gz_path, "wb", compresslevel=6) as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        size_mb = os.path.getsize(gz_path) / 1024 / 1024
+
+        # 3) har bir adminga yuboramiz
+        from aiogram.types import InputFile
+        caption = (
+            f"💾 <b>Kunlik bazaning nusxasi</b>\n"
+            f"📅 {today_str}\n"
+            f"📦 Hajmi: {size_mb:.2f} MB\n\n"
+            "Tiklash: <code>gunzip -c fayl.sql.gz | psql $DATABASE_URL</code>"
+        )
+        for tg_id in recipients:
+            try:
+                # Har gal yangi InputFile (aiogram fayl handle'ni iste'mol qiladi)
+                await bot.send_document(
+                    tg_id,
+                    InputFile(gz_path, filename=os.path.basename(gz_path)),
+                    caption=caption,
+                )
+            except Exception as exc:
+                logging.error("Backup: %s ga yuborilmadi: %s", tg_id, exc)
+        logging.info("✅ Kunlik backup yuborildi (%s adminga, %.2f MB)", len(recipients), size_mb)
+    except Exception as exc:
+        logging.exception("Backup job kutilmagan xato: %s", exc)
+    finally:
+        # Vaqtinchalik fayllarni tozalaymiz
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def schedule_jobs():
     """Shaxsiy hisobot vazifalarini rejalashtiradi."""
     # Ertalabki hisobot (Dushanba-Shanba, soat 08:30 da)
     scheduler.add_job(
         send_morning_briefings,
         trigger=CronTrigger(hour=8, minute=30, day_of_week='mon-sat'),
+    )
+    # Kunlik baza backupi (har kuni soat 06:00, Toshkent)
+    scheduler.add_job(
+        send_daily_backup_job,
+        trigger=CronTrigger(hour=6, minute=0),
     )
     # Kechki hisobot (Dushanba-Shanba, soat 19:30 da)
     scheduler.add_job(

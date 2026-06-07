@@ -10,9 +10,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# 2. FFmpeg o'rnatish (audio convert uchun)
+# 2. FFmpeg + postgresql-client o'rnatish (audio convert uchun + kunlik backup uchun pg_dump)
 RUN apt-get update && \
-    apt-get install -y ffmpeg && \
+    apt-get install -y ffmpeg postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 # 3. Loyiha kodlarini nusxalash

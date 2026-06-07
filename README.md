@@ -49,6 +49,7 @@ Asosiylari (to'liq ro'yxat `.env.example`da):
 | `REDIS_URL` | (ixtiyoriy) FSM uchun Redis |
 | `GEMINI_API_KEYS` | AI yordamchi uchun Gemini kalitlari |
 | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Ovozdan-matnga |
+| `BACKUP_RECIPIENTS` | (ixtiyoriy) Kunlik baza backupini oladigan tg_id'lar (vergul bilan). Bo'sh bo'lsa SUPERADMINS qabul qiladi. |
 
 ## Deploy
 
