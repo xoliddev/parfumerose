@@ -664,20 +664,15 @@ async def loc_handler(message: types.Message, state: FSMContext):
         return
 
     loc = message.location
-    # === DEBUG-ONLY: vaqtinchalik OCHILGAN — oddiy (live emas) lokatsiya ham qabul qilinadi.
-    # Sinov tugagach pastdagi blokni qaytaring (live_period majburligi).
-    # --- ASL BLOK (qaytarish uchun) ---
-    # if not getattr(loc, "live_period", None):
-    #     await message.answer("Oddiy lokatsiya emas, jonli lokatsiya yuboring.")
-    #     prompt_data = await state.get_data()
-    #     await show_location_issue_prompt(
-    #         message.chat.id,
-    #         prompt_data.get("menu_message_id"),
-    #         None,
-    #     )
-    #     return
     if not getattr(loc, "live_period", None):
-        logging.warning("DEBUG: oddiy lokatsiya qabul qilindi (live_period yo'q) — sinov rejimi")
+        await message.answer("Oddiy lokatsiya emas, jonli lokatsiya yuboring.")
+        prompt_data = await state.get_data()
+        await show_location_issue_prompt(
+            message.chat.id,
+            prompt_data.get("menu_message_id"),
+            None,
+        )
+        return
 
     dist = db.calculate_distance(loc.latitude, loc.longitude,
                                  ALLOWED_LAT, ALLOWED_LON)

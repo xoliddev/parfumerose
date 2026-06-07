@@ -113,3 +113,7 @@ class AdminContact(StatesGroup):
 
 class AdminWorkGroup(StatesGroup):
     waiting_for_id = State()
+
+
+class WipeDataState(StatesGroup):
+    waiting_for_confirmation = State()

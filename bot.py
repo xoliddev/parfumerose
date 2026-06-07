@@ -2,6 +2,7 @@
 
 import logging
 import datetime
+import html
 import os
 import sys
 
@@ -27,7 +28,8 @@ from aiogram.utils.exceptions import (
 # Ma'lumotlar bazasi bilan ishlash uchun kerakli funksiyalar
 import database as db
 from config import ABSENCE_REMINDER_DELAY_MIN, BOT_TOKEN, SUPERADMINS
-from states import UserAttendance
+from aiogram import types
+from states import UserAttendance, WipeDataState
 from shared import (
     build_absence_review_keyboard,
     register_admin_action_messages,
@@ -386,6 +388,132 @@ async def manual_backup_command(message, state):
     except Exception as exc:
         logging.exception("Manual backup xatosi")
         await message.reply(f"❌ Backup xatosi: <code>{type(exc).__name__}: {exc}</code>")
+
+
+# ============================================================================
+# /wipe_data — bazani toza holatga keltirish (faqat SUPERADMIN, 2 qadamli)
+# ============================================================================
+
+_WIPE_CONFIRM_PHRASE = "BAZANI TOZALASH"
+
+
+@dp.message_handler(commands=["wipe_data"], state="*")
+async def wipe_data_start(message, state):
+    """Xavfsiz baza tozalash: statistika ko'rsatadi, tasdiqlash kutadi."""
+    if message.from_user.id not in SUPERADMINS:
+        return  # boshqalar uchun jimgina
+
+    try:
+        await state.finish()
+    except Exception:
+        pass
+
+    try:
+        async with db.pool.acquire() as conn:
+            workers_count = await conn.fetchval("SELECT COUNT(*) FROM workers") or 0
+            sessions_count = await conn.fetchval("SELECT COUNT(*) FROM work_sessions") or 0
+            payments_count = await conn.fetchval("SELECT COUNT(*) FROM salary_payments") or 0
+            attendance_count = await conn.fetchval("SELECT COUNT(*) FROM attendance") or 0
+            try:
+                applications_count = await conn.fetchval("SELECT COUNT(*) FROM applications") or 0
+            except Exception:
+                applications_count = 0
+    except Exception as exc:
+        return await message.reply(f"❌ Statistika olishda xato: {exc}")
+
+    await WipeDataState.waiting_for_confirmation.set()
+    await message.reply(
+        "⚠️ <b>BAZANI TOZALASH</b>\n\n"
+        "<b>O'chiriladi:</b>\n"
+        f"• 👷 Xodimlar: <b>{workers_count}</b>\n"
+        f"• 📋 Ish sessiyalari: <b>{sessions_count}</b>\n"
+        f"• 💰 To'lovlar (maosh+avans): <b>{payments_count}</b>\n"
+        f"• 📝 Davomat yozuvlari: <b>{attendance_count}</b>\n"
+        f"• 📨 Arizalar: <b>{applications_count}</b>\n"
+        "• 📊 Kun holati va faollik jurnali\n\n"
+        "<b>Saqlanadi (konfiguratsiya):</b>\n"
+        "• 🏢 Filiallar\n"
+        "• 👮 Adminlar va katta adminlar\n"
+        "• 📢 Bildirishnoma guruhlari\n"
+        "• 📞 Admin aloqasi\n\n"
+        "❗ <b>BU AMAL QAYTARILMAYDI.</b>\n"
+        "Tozalashdan oldin avtomatik backup BACKUP_RECIPIENTS lichkasiga yuboriladi.\n\n"
+        f"Davom ettirish uchun aynan shu matnni yozing:\n"
+        f"<code>{_WIPE_CONFIRM_PHRASE}</code>\n\n"
+        "Bekor qilish: /cancel",
+        parse_mode="HTML",
+    )
+
+
+@dp.message_handler(commands=["cancel"], state=WipeDataState.waiting_for_confirmation)
+async def wipe_data_cancel(message, state):
+    await state.finish()
+    await message.reply("✅ Baza tozalash bekor qilindi.")
+
+
+@dp.message_handler(state=WipeDataState.waiting_for_confirmation, content_types=types.ContentTypes.TEXT)
+async def wipe_data_confirm(message, state):
+    if message.from_user.id not in SUPERADMINS:
+        await state.finish()
+        return
+
+    txt = (message.text or "").strip()
+    if txt.lower() in ("/cancel", "cancel", "bekor"):
+        await state.finish()
+        return await message.reply("✅ Bekor qilindi.")
+
+    if txt != _WIPE_CONFIRM_PHRASE:
+        return await message.reply(
+            f"❌ Tasdiqlash matni mos kelmadi.\n"
+            f"Aynan shu matnni yozing: <code>{_WIPE_CONFIRM_PHRASE}</code>\n"
+            f"yoki /cancel — bekor qilish.",
+            parse_mode="HTML",
+        )
+
+    await state.finish()
+
+    # 1) Avval backup oling (xato bersa ham tozalash davom etadi — admin ogohlantirildi)
+    await message.reply("⏳ <b>1/2</b> Avtomatik backup tayyorlanmoqda...", parse_mode="HTML")
+    try:
+        await send_daily_backup_job()
+    except Exception as exc:
+        logging.exception("Wipe: backup xatosi")
+        await message.reply(
+            f"⚠️ Backup OLINMADI: <code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:200]}</code>\n"
+            "Tozalash baribir davom etmoqda.",
+            parse_mode="HTML",
+        )
+
+    # 2) Tozalash — TRUNCATE bilan, CASCADE FK'larni ham tushiradi
+    await message.reply("⏳ <b>2/2</b> Baza tozalanmoqda...", parse_mode="HTML")
+    try:
+        async with db.pool.acquire() as conn:
+            async with conn.transaction():
+                # workers'ni TRUNCATE qilsak, work_sessions/salary_payments/
+                # worker_day_state_v2/branch_admins ham CASCADE bilan tushadi.
+                # Lekin branch_admins'ni saqlash uchun avval uni tozalamaymiz
+                # (FK tg_id'ga emas, workers.id'ga ham tegmaydi).
+                await conn.execute("TRUNCATE TABLE workers RESTART IDENTITY CASCADE")
+                # Mustaqil jadvallar (FK workers'ga emas)
+                for tbl in ("attendance", "applications", "worker_activity_log", "worker_day_state_v2"):
+                    try:
+                        await conn.execute(f"TRUNCATE TABLE {tbl} RESTART IDENTITY CASCADE")
+                    except Exception:
+                        pass  # jadval bo'lmasa o'tkazib yuboramiz
+        await message.reply(
+            "✅ <b>Baza tozalandi.</b>\n\n"
+            "O'chirildi: barcha xodimlar, sessiyalar, to'lovlar, davomat, arizalar.\n"
+            "Saqlandi: filiallar, adminlar, bildirishnoma guruhlari, admin aloqasi.\n\n"
+            "Backup faylingiz Telegram'da turibdi — kerak bo'lsa qaytarish mumkin.",
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logging.exception("Wipe: tozalash xatosi")
+        await message.reply(
+            "❌ <b>Tozalashda xatolik:</b>\n"
+            f"<code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:300]}</code>",
+            parse_mode="HTML",
+        )
 
 
 def schedule_jobs():
