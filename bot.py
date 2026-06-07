@@ -361,6 +361,14 @@ async def manual_backup_command(message, state):
     if message.from_user.id not in SUPERADMINS:
         return  # boshqa foydalanuvchilar uchun jimgina e'tiborsizlik
 
+    # /backup state="*" bilan ishlaydi — agar admin biror FSM oqimda turgan bo'lsa
+    # (xodim qo'shish, maosh tahrirlash va h.k.), eski state'ni tozalaymiz.
+    # Aks holda backup tugagach admin yana eski state'ga tushib qotib qoladi.
+    try:
+        await state.finish()
+    except Exception:
+        pass
+
     recipients = _resolve_backup_recipients()
     if not recipients:
         return await message.reply(
