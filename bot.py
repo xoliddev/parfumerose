@@ -2,6 +2,7 @@
 
 import logging
 import datetime
+import os
 import sys
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -269,9 +270,44 @@ def schedule_jobs():
     logging.info("Shaxsiy hisobotlar muvaffaqiyatli rejalashtirildi.")
 
 
+_health_runner = None
+
+
+async def _start_health_server():
+    """Koyeb/Render 'web service' uxlab qolmasligi uchun mini HTTP health-server.
+
+    Bot long-polling bilan ishlaydi va hech qanday port tinglamaydi. Web service
+    esa $PORT'da health-check kutadi — port bo'lmasa platforma instansiyani 'bo'sh'
+    deb bilib uxlatadi (cold-start sekinligi). Bu server $PORT'da 200 qaytaradi,
+    shunda Koyeb instansiyani doim 'sog'lom' deb biladi va uxlatmaydi.
+    """
+    global _health_runner
+    from aiohttp import web  # aiogram 2.x allaqachon aiohttp'ga tayanadi, qo'shimcha kerak emas
+
+    port = int(os.getenv("PORT", "8000"))
+
+    async def _ok(request):
+        return web.Response(text="OK")
+
+    app = web.Application()
+    app.router.add_get("/", _ok)
+    app.router.add_get("/health", _ok)
+
+    _health_runner = web.AppRunner(app)
+    await _health_runner.setup()
+    await web.TCPSite(_health_runner, "0.0.0.0", port).start()
+    logging.info("✅ Health-server ishga tushdi: 0.0.0.0:%s (Koyeb uxlatmasligi uchun)", port)
+
+
 async def on_startup(dispatcher):
     """Bot ishga tushganda bajariladigan amallar."""
     print("Bot ishga tushmoqda...")
+
+    # 0. Health-server (Koyeb web service uxlab qolmasligi uchun) — eng avval ishga tushadi
+    try:
+        await _start_health_server()
+    except Exception as exc:
+        logging.error("Health-server ishga tushmadi: %s", exc)
 
     # 1. PostgreSQL bilan ulanishlar hovuzini (pool) yaratamiz
     await db.create_pool()
@@ -291,6 +327,12 @@ async def on_startup(dispatcher):
 async def on_shutdown(dispatcher):
     """Bot to'xtaganda bajariladigan amallar."""
     logging.warning("Bot to'xtamoqda...")
+    # Health-serverni yopamiz
+    if _health_runner:
+        try:
+            await _health_runner.cleanup()
+        except Exception:
+            pass
     # Ulanishlar hovuzini yopamiz
     if db.pool:
         await db.pool.close()
