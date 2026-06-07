@@ -459,7 +459,7 @@ async def _build_worker_salary_text(user_id: int) -> str:
     if payments:
         text += "Joriy oy to'lovlar:"
         for p in payments:
-            p_datetime = p["payment_time"].astimezone()
+            p_datetime = p["payment_time"].astimezone(tashkent_tz)
             p_date_str = p_datetime.strftime("%d.%m.%Y")
             p_time_str = p_datetime.strftime("%H:%M")
             text += f"\n• {p_date_str} {p_time_str} — {float(p['amount']):,.0f} so'm"
@@ -733,7 +733,13 @@ async def loc_handler(message: types.Message, state: FSMContext):
                 INSERT INTO work_sessions (user_id, date, arrival_time, is_friday, session_daily_hours, branch_id)
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (user_id, date) DO UPDATE SET
-                    branch_id = COALESCE(work_sessions.branch_id, EXCLUDED.branch_id)
+                    arrival_time        = EXCLUDED.arrival_time,
+                    departure_time      = NULL,
+                    total_hours         = 0,
+                    late_reason         = NULL,
+                    is_friday           = EXCLUDED.is_friday,
+                    session_daily_hours = EXCLUDED.session_daily_hours,
+                    branch_id           = COALESCE(work_sessions.branch_id, EXCLUDED.branch_id)
                 """,
                 wid,
                 today_date,
@@ -764,11 +770,11 @@ async def loc_handler(message: types.Message, state: FSMContext):
             )
 
             await notify_admins_and_group(
-                f"🟢 {wname} ishga KELDI. ({now_dt_aware.astimezone().strftime('%H:%M:%S')})",
+                f"🟢 {wname} ishga KELDI. ({now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')})",
                 worker_id=wid,
             )
             await message.answer(
-                f"Kelishingiz {branch_name} filialida qayd qilindi. ({now_dt_aware.astimezone().strftime('%H:%M:%S')})",
+                f"Kelishingiz {branch_name} filialida qayd qilindi. ({now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')})",
                 reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
             )
             await state.finish()
@@ -834,7 +840,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
 
         admin_txt = (
             f"🔴 {wname} ishxonadan KETDI.\n"
-            f"Kelish: {arr_dt.astimezone().strftime('%H:%M:%S')}, Ketish: {now_dt_aware.astimezone().strftime('%H:%M:%S')}\n"
+            f"Kelish: {arr_dt.astimezone(tashkent_tz).strftime('%H:%M:%S')}, Ketish: {now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')}\n"
             f"Ishlagan: {format_hours(total_f)}"
         )
         await notify_admins_and_group(admin_txt, worker_id=wid)
@@ -917,11 +923,11 @@ async def loc_handler(message: types.Message, state: FSMContext):
                 return
 
             await notify_admins_and_group(
-                f"✅ {wname} ishga KELDI. ({now_dt_aware.astimezone().strftime('%H:%M:%S')})",
+                f"✅ {wname} ishga KELDI. ({now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')})",
                 worker_id=wid,
             )
             await message.reply(
-                f"Kelishingiz qayd qilindi. ({now_dt_aware.astimezone().strftime('%H:%M:%S')})",
+                f"Kelishingiz qayd qilindi. ({now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')})",
                 reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
             )
             await state.finish()
@@ -985,7 +991,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
 
             admin_txt = (
                 f"🔚 {wname} ishxonadan KETDI.\n"
-                f"Kelish: {arr_dt.astimezone().strftime('%H:%M:%S')}, Ketish: {now_dt_aware.astimezone().strftime('%H:%M:%S')}\n"
+                f"Kelish: {arr_dt.astimezone(tashkent_tz).strftime('%H:%M:%S')}, Ketish: {now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')}\n"
                 f"Ishlagan: {format_hours(total_f)}{early_msg}"
             )
             if forced and early_rs:
@@ -1117,7 +1123,7 @@ async def worker_salary(message: types.Message):
     if payments:
         text += "📄 Joriy oy to‘lovlar:"
         for p in payments:
-            p_datetime = p['payment_time'].astimezone()
+            p_datetime = p['payment_time'].astimezone(tashkent_tz)
             p_date_str = p_datetime.strftime("%d.%m.%Y")
             p_time_str = p_datetime.strftime("%H:%M")
             text += f"\n• {p_date_str} {p_time_str} — {float(p['amount']):,.0f} so‘m"

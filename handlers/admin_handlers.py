@@ -1157,9 +1157,9 @@ async def handle_salary_worker(callback_query: types.CallbackQuery, state: FSMCo
         if branch_name:
             text += f"🏢 Filial: <b>{branch_name}</b>\n"
         text += (
-            f"💳 Tayinlangan maosh: <b>{monthly_salary:,.2f}</b> so'm\n"
-            f"✅ To‘langan: <b>{total_paid:,.2f}</b> so'm\n"
-            f"❗️ Qolgan: <b>{remaining:,.2f}</b> so'm\n"
+            f"💳 Tayinlangan maosh: <b>{monthly_salary:,.0f}</b> so'm\n"
+            f"✅ To‘langan: <b>{total_paid:,.0f}</b> so'm\n"
+            f"❗️ Qolgan: <b>{remaining:,.0f}</b> so'm\n"
         )
 
         keyboard = types.InlineKeyboardMarkup(row_width=2)
@@ -1403,7 +1403,7 @@ async def process_salary_amount(message: types.Message, state: FSMContext):
 
     await state.finish()
     label = _format_worker_branch_label(dict(worker)) if worker else f"Xodim ID: {worker_id}"
-    await message.reply(f"✅ {label} uchun yangi oylik maosh {amount:,.2f} qilib belgilandi.")
+    await message.reply(f"✅ {label} uchun yangi oylik maosh {amount:,.0f} so'm qilib belgilandi.")
 
 
 @dp.message_handler(state=AdminAddSalaryPayment.waiting_for_payment_amount, content_types=types.ContentTypes.TEXT)
@@ -1457,7 +1457,7 @@ async def process_payment_amount_combined(message: types.Message, state: FSMCont
         remaining = monthly_salary - sum_payment
         rem_text = f"\nQolgan: {float(remaining):,.0f} so‘m"
 
-    payment_time_str = datetime.datetime.now().strftime('%H:%M:%S')
+    payment_time_str = datetime.datetime.now(tashkent_tz).strftime('%H:%M:%S')
     worker_label = full_name + (f" [{branch_name}]" if branch_name else "")
     reply = (
         f"✅ To‘lov qabul qilindi.\n"
@@ -1904,7 +1904,7 @@ async def view_worker(callback_query: types.CallbackQuery):
     # --- TUZATISH SHU YERDA: .strftime() olib tashlandi ---
     w_start = worker['work_start'] or 'Belgilanmagan'
     w_end = worker['work_end'] or 'Belgilanmagan'
-    added_date = worker['added_date'].astimezone().strftime('%Y-%m-%d %H:%M')
+    added_date = worker['added_date'].astimezone(tashkent_tz).strftime('%Y-%m-%d %H:%M')
 
     text = (
         f"<b>Xodim ID: {worker['id']}</b>\n"
@@ -2355,7 +2355,7 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
 
     text_att = "<b>Bugungi qo'shimcha yozuvlar:</b>\n" if attendance_records else "Bugun qo'shimcha yozuvlar mavjud emas.\n"
     for record in attendance_records:
-        ts_str = record['timestamp'].astimezone().strftime('%H:%M:%S')
+        ts_str = record['timestamp'].astimezone(tashkent_tz).strftime('%H:%M:%S')
         branch_suffix = f" [{record['branch_name']}]" if record.get('branch_name') else ""
         text_att += f"<code>{ts_str}</code> - {record['name']}{branch_suffix}: <i>{record['message']}</i>\n"
 
@@ -2371,13 +2371,13 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
             is_friday = session["is_friday"]
             sess_req = session["session_daily_hours"]
             branch_name = session["branch_name"]
-            arr_str = arr.astimezone().strftime('%H:%M:%S')
+            arr_str = arr.astimezone(tashkent_tz).strftime('%H:%M:%S')
             branch_suffix = f" [{branch_name}]" if branch_name else ""
 
             if dep is None:
                 text_sess += f"▶️ {full_name}{branch_suffix} - Keldi: <b>{arr_str}</b>, hali ketmadi.\n"
             else:
-                dep_str = dep.astimezone().strftime('%H:%M:%S')
+                dep_str = dep.astimezone(tashkent_tz).strftime('%H:%M:%S')
                 actual_str = format_hours(total_hours or 0.0)
                 expected_str = format_hours(sess_req or 0.0) if sess_req and float(sess_req) > 0 else "Belgilanmagan"
 
@@ -2605,8 +2605,8 @@ async def show_daily_details(callback_query: types.CallbackQuery):
     details = f"<b>{day} kungi to'liq ma'lumot:</b>\n<b>{worker_label}</b>\n\n"
     if sessions:
         for idx, session in enumerate(sessions, start=1):
-            arr_time = session['arrival_time'].astimezone().strftime('%H:%M:%S') if session['arrival_time'] else '—'
-            dep_time = session['departure_time'].astimezone().strftime('%H:%M:%S') if session[
+            arr_time = session['arrival_time'].astimezone(tashkent_tz).strftime('%H:%M:%S') if session['arrival_time'] else '—'
+            dep_time = session['departure_time'].astimezone(tashkent_tz).strftime('%H:%M:%S') if session[
                 'departure_time'] else 'Hali ketmagan'
             total_h_str = format_hours(session['total_hours'] or 0.0)
             daily_h_str = format_hours(session['session_daily_hours'] or 0.0)
@@ -2628,7 +2628,7 @@ async def show_daily_details(callback_query: types.CallbackQuery):
     if attendances:
         details += "<b>Qo'shimcha yozuvlar:</b>\n"
         for att in attendances:
-            ts = att['timestamp'].astimezone().strftime('%H:%M:%S')
+            ts = att['timestamp'].astimezone(tashkent_tz).strftime('%H:%M:%S')
             details += f"<code>{ts}</code>: {att['message']}"
             if att['reason']:
                 details += f" (Sabab: <i>{att['reason']}</i>)"
@@ -2671,7 +2671,7 @@ async def modify_payment_list_new(callback_query: types.CallbackQuery):
     worker_id = int(parts[1])
     if not await db.admin_can_access_worker(callback_query.from_user.id, worker_id):
         return await callback_query.answer("Bu xodim sizning filialingizga tegishli emas.", show_alert=True)
-    current_month = datetime.datetime.now().strftime("%Y-%m")
+    current_month = datetime.datetime.now(tashkent_tz).strftime("%Y-%m")
 
     # --- TUZATISH: db.pool ishlatiladi ---
     async with db.pool.acquire() as conn:
@@ -2693,7 +2693,7 @@ async def modify_payment_list_new(callback_query: types.CallbackQuery):
     text = "<b>Joriy oy to'lovlari:</b>\n\n"
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     for p in payments:
-        p_datetime = p['payment_time'].astimezone()
+        p_datetime = p['payment_time'].astimezone(tashkent_tz)
         date_str = p_datetime.strftime("%d.%m.%Y")
         time_str = p_datetime.strftime("%H:%M")
         amount_str = f"{float(p['amount']):,.0f}"
@@ -2939,7 +2939,7 @@ async def old_payments_handler(message: types.Message):
 
     text = f"<b>To'lovlar (oy: {month_arg}):</b>\n\n"
     for row in rows:
-        p_datetime = row['payment_time'].astimezone()
+        p_datetime = row['payment_time'].astimezone(tashkent_tz)
         date_str = p_datetime.strftime('%d.%m.%Y')
         time_str = p_datetime.strftime('%H:%M')
         branch_suffix = f" [{row['branch_name']}]" if row.get('branch_name') else ""
