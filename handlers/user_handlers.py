@@ -458,11 +458,11 @@ async def _build_worker_salary_text(user_id: int) -> str:
     text += f"Qolgan: {float(remaining):,.0f} so'm\n\n"
     if payments:
         text += "Joriy oy to'lovlar:"
-        for p in payments:
+        for i, p in enumerate(payments, start=1):
             p_datetime = p["payment_time"].astimezone(tashkent_tz)
             p_date_str = p_datetime.strftime("%d.%m.%Y")
             p_time_str = p_datetime.strftime("%H:%M")
-            text += f"\n• {p_date_str} {p_time_str} — {float(p['amount']):,.0f} so'm"
+            text += f"\n{i}. {p_date_str} {p_time_str} — {float(p['amount']):,.0f} so'm"
     return text
 
 
@@ -1122,11 +1122,11 @@ async def worker_salary(message: types.Message):
     text += f"Qolgan: {float(remaining):,.0f} so'm\n\n"
     if payments:
         text += "📄 Joriy oy to‘lovlar:"
-        for p in payments:
+        for i, p in enumerate(payments, start=1):
             p_datetime = p['payment_time'].astimezone(tashkent_tz)
             p_date_str = p_datetime.strftime("%d.%m.%Y")
             p_time_str = p_datetime.strftime("%H:%M")
-            text += f"\n• {p_date_str} {p_time_str} — {float(p['amount']):,.0f} so‘m"
+            text += f"\n{i}. {p_date_str} {p_time_str} — {float(p['amount']):,.0f} so‘m"
 
     await message.reply(text)
 

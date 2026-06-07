@@ -1302,12 +1302,12 @@ async def handle_payment_details(callback_query: types.CallbackQuery, state: FSM
         return
 
     keyboard = types.InlineKeyboardMarkup(row_width=1)
-    for row in rows:
+    for i, row in enumerate(rows, start=1):
         date_str = row['payment_date'].strftime("%d.%m.%Y")
         amount = float(row['amount'] or 0.0)
         keyboard.add(
             types.InlineKeyboardButton(
-                text=f"{date_str} — {amount:,.0f} so‘m",
+                text=f"{i}) {date_str} — {amount:,.0f} so‘m",
                 callback_data=f"payment_detail_{row['id']}", style="primary")
         )
     keyboard.add(
@@ -2078,7 +2078,7 @@ async def show_worker_work_hours(callback_query: types.CallbackQuery):
     w_end_str = row['work_end'] or '---'
 
     desc = (
-        f"<b>{row['id']}) {html.escape(str(row['full_name']))}</b>\n"
+        f"👤 <b>{html.escape(str(row['full_name']))}</b>\n"
         f"🏢 Filial: <b>{html.escape(str(row['branch_name'] or 'Belgilanmagan'))}</b>\n\n"
         f"🕒 Kunlik ish soati: <b>{dw_str}</b>\n"
         f"⏰ Ish vaqti: <b>{w_start_str} - {w_end_str}</b>"
@@ -2389,7 +2389,7 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
         text_sess = "<b>Bugun hech kim ishga kelgani qayd qilinmadi.</b>\n"
     else:
         text_sess = "<b>Bugungi ish soatlari:</b>\n"
-        for session in sessions:
+        for i, session in enumerate(sessions, start=1):
             full_name = session["full_name"]
             arr = session["arrival_time"]
             dep = session["departure_time"]
@@ -2401,7 +2401,7 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
             branch_suffix = f" [{branch_name}]" if branch_name else ""
 
             if dep is None:
-                text_sess += f"▶️ {full_name}{branch_suffix} - Keldi: <b>{arr_str}</b>, hali ketmadi.\n"
+                text_sess += f"{i}. ▶️ {full_name}{branch_suffix} - Keldi: <b>{arr_str}</b>, hali ketmadi.\n"
             else:
                 dep_str = dep.astimezone(tashkent_tz).strftime('%H:%M:%S')
                 actual_str = format_hours(total_hours or 0.0)
@@ -2414,7 +2414,7 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
                         diff_str = f" (⚠️ {format_hours(diff_minutes / 60)} kam)"
 
                 friday_tag = "(Juma) " if is_friday else ""
-                text_sess += (f"✅ {full_name}{branch_suffix} {friday_tag}- <b>{arr_str}</b> da keldi, <b>{dep_str}</b> da ketdi.\n"
+                text_sess += (f"{i}. ✅ {full_name}{branch_suffix} {friday_tag}- <b>{arr_str}</b> da keldi, <b>{dep_str}</b> da ketdi.\n"
                               f"   Ishlagan: <i>{actual_str}</i> | Kutilgan: <i>{expected_str}</i>{diff_str}\n")
 
     final_text = text_sess + "\n" + text_att
@@ -2720,14 +2720,14 @@ async def modify_payment_list_new(callback_query: types.CallbackQuery):
 
     text = "<b>Joriy oy to'lovlari:</b>\n\n"
     keyboard = types.InlineKeyboardMarkup(row_width=1)
-    for p in payments:
+    for i, p in enumerate(payments, start=1):
         p_datetime = p['payment_time'].astimezone(tashkent_tz)
         date_str = p_datetime.strftime("%d.%m.%Y")
         time_str = p_datetime.strftime("%H:%M")
         amount_str = f"{float(p['amount']):,.0f}"
-        text += f"🆔 {p['id']} | {date_str} {time_str} - <b>{amount_str} so'm</b>\n"
+        text += f"<b>{i}.</b> {date_str} {time_str} — <b>{amount_str} so'm</b>\n"
         keyboard.add(
-            types.InlineKeyboardButton(text=f"✏️ Tahrirlash (ID: {p['id']})", callback_data=f"change_{p['id']}", style="primary")
+            types.InlineKeyboardButton(text=f"✏️ Tahrirlash ({i})", callback_data=f"change_{p['id']}", style="primary")
         )
     await bot.send_message(callback_query.from_user.id, text, reply_markup=keyboard, parse_mode="HTML")
     await callback_query.answer()
@@ -2966,12 +2966,12 @@ async def old_payments_handler(message: types.Message):
         return
 
     text = f"<b>To'lovlar (oy: {month_arg}):</b>\n\n"
-    for row in rows:
+    for i, row in enumerate(rows, start=1):
         p_datetime = row['payment_time'].astimezone(tashkent_tz)
         date_str = p_datetime.strftime('%d.%m.%Y')
         time_str = p_datetime.strftime('%H:%M')
         branch_suffix = f" [{row['branch_name']}]" if row.get('branch_name') else ""
-        text += f"{date_str} {time_str} | {row['full_name']}{branch_suffix}: <b>{float(row['amount']):,.0f} so'm</b>\n"
+        text += f"<b>{i}.</b> {date_str} {time_str} | {row['full_name']}{branch_suffix}: <b>{float(row['amount']):,.0f} so'm</b>\n"
 
     await message.reply(text, parse_mode="HTML")
 
@@ -3649,8 +3649,12 @@ async def manual_attendance_start(callback_query: types.CallbackQuery, state: FS
         return
 
     kb = InlineKeyboardMarkup(row_width=2)
-    for worker in workers:
-        kb.insert(InlineKeyboardButton(_format_worker_branch_label(worker), callback_data=f"manual_worker_{worker['id']}", style="primary"))
+    for i, worker in enumerate(workers, start=1):
+        kb.insert(InlineKeyboardButton(
+            _format_worker_option_label(worker, position=i),
+            callback_data=f"manual_worker_{worker['id']}",
+            style="primary",
+        ))
 
     await callback_query.message.edit_text("Qaysi xodim uchun davomat kiritmoqchisiz?", reply_markup=kb)
     await AdminManualAttendance.choosing_worker.set()
