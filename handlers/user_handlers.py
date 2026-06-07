@@ -335,7 +335,7 @@ async def request_join_name(message: types.Message, state: FSMContext):
     )
     sent_messages = await notify_selected_admins(
         SUPERADMINS,
-        f"🆕 Ariza:\nID: {u.id}\nIsm: {full_name}\nUsername: {('@' + u.username) if u.username else '—'}",
+        f"🆕 Ariza:\nID: {u.id}\nIsm: {html.escape(full_name)}\nUsername: {('@' + u.username) if u.username else '—'}",
         reply_markup=kb
     )
     await register_admin_action_messages(action_key, sent_messages)
@@ -409,7 +409,7 @@ async def absence_review_callback(callback_query: types.CallbackQuery):
             except Exception:
                 pass
             await notify_admins(
-                f"📌 {callback_query.from_user.full_name} {worker['full_name']}ni bugun {note}.",
+                f"📌 {html.escape(callback_query.from_user.full_name)} {html.escape(worker['full_name'])}ni bugun {note}.",
                 worker_id=worker["id"],
             )
 
@@ -606,7 +606,10 @@ async def late_reason(message: types.Message, state: FSMContext):
 
     name = name_record['full_name'] if name_record else "Noma'lum xodim"
     worker_id = name_record['id'] if name_record else None
-    await notify_admins(f"{name} kech kelish sababi: {txt}", worker_id=worker_id)
+    await notify_admins(
+        f"⏰ <b>{html.escape(name)}</b> kech kelish sababini yozdi:\n\n<i>«{html.escape(txt)}»</i>",
+        worker_id=worker_id,
+    )
     await message.answer("Sabab qabul qilindi, rahmat!",
                         reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True))
     await state.finish()
@@ -1162,7 +1165,10 @@ async def process_help_feedback(message: types.Message, state: FSMContext):
 
     user_id = message.from_user.id
     user_name = message.from_user.full_name
-    to_admins = f"[HELP] Foydalanuvchi: {user_name if user_name else ''} (ID:{user_id})\nMuammo/taklif:\n{feedback_text}"
+    to_admins = (
+        f"🆘 <b>[YORDAM]</b> Foydalanuvchi: {html.escape(user_name) if user_name else '—'} (ID: {user_id})\n"
+        f"Muammo/taklif:\n<i>«{html.escape(feedback_text)}»</i>"
+    )
     worker_record = await db.get_worker_by_tg_id(user_id)
     worker_id = worker_record.get("id") if worker_record else None
 
@@ -1323,7 +1329,11 @@ async def execute_forward_to_admin(user_id: int, message_text: str):
             worker_db_id, worker_name, branch_id, message_text, "xodim_xabari"
         )
 
-    admin_message = f"✉️ Xodimdan xabar:\n\n<b>Xodim:</b> {worker_name} (TG ID: {user_id})\n<b>Xabar:</b> <i>{html.escape(message_text)}</i>"
+    admin_message = (
+        "✉️ <b>Xodim kela olmasligi sababini yozdi:</b>\n\n"
+        f"<b>Xodim:</b> {html.escape(worker_name)} (TG ID: {user_id})\n"
+        f"<b>Sabab:</b> <i>«{html.escape(message_text)}»</i>"
+    )
     await notify_admins(admin_message, worker_id=worker_db_id)
 
 
@@ -1350,8 +1360,8 @@ async def handle_employee_text_message(message: types.Message):
 
     else:  # action == "error" yoki boshqa holat bo'lsa
         # Agar AI bilan bog'lanishda xatolik bo'lsa
-        print(f"Xodim AI xatoligi: {ai_result.get('message')}")
-        # Xodimga bu haqida bildirish shart emas, shunchaki adminga yuboramiz
+        logging.warning("Xodim AI tahlili ishlamadi: %s", ai_result.get("message"))
+        # Xodimga texnik tafsilot ko'rsatmaymiz; xabarni tozalab adminga yuboramiz
         await execute_forward_to_admin(user_id=message.from_user.id,
-                                       message_text=f"(AI tahlil qila olmadi) {message.text}")
+                                       message_text=message.text)
         await message.reply("✅ Xabaringiz adminga yetkazildi.")
