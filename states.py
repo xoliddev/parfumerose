@@ -109,3 +109,7 @@ class AdminSuperadminSettings(StatesGroup):
 
 class AdminContact(StatesGroup):
     waiting_for_contact = State()
+
+
+class AdminWorkGroup(StatesGroup):
+    waiting_for_id = State()

@@ -24,6 +24,7 @@ def get_admin_main_menu(admin_tg_id: int | None = None) -> types.InlineKeyboardM
     )
     kb.row(
         types.InlineKeyboardButton("📞 Admin aloqasi", callback_data="admin_contact:menu", style="primary"),
+        types.InlineKeyboardButton("📢 Bildirishnoma guruhi", callback_data="workgroup:menu", style="primary"),
     )
     if admin_tg_id in SUPERADMINS:
         kb.row(

@@ -652,6 +652,37 @@ async def get_notification_group_id(branch_id: Optional[int] = None) -> int:
     return WORK_LOG_GROUP_ID
 
 
+async def set_branch_work_log_group_id(branch_id: int, group_id: int) -> bool:
+    """Filialga bildirishnoma yuboriladigan Telegram guruh ID'sini saqlaydi."""
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE branches SET work_log_group_id = $1 WHERE id = $2",
+            int(group_id),
+            int(branch_id),
+        )
+    return "UPDATE 1" in result
+
+
+async def clear_branch_work_log_group_id(branch_id: int) -> bool:
+    """Filialdan bildirishnoma guruh ID'sini olib tashlaydi (NULL)."""
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE branches SET work_log_group_id = NULL WHERE id = $1",
+            int(branch_id),
+        )
+    return "UPDATE 1" in result
+
+
+async def get_branch_work_log_group_id(branch_id: int) -> Optional[int]:
+    """Filialning joriy bildirishnoma guruh ID'sini qaytaradi (yo'q bo'lsa None)."""
+    async with pool.acquire() as conn:
+        value = await conn.fetchval(
+            "SELECT work_log_group_id FROM branches WHERE id = $1",
+            int(branch_id),
+        )
+    return int(value) if value else None
+
+
 async def get_admin_branch_ids(tg_id: int) -> List[int]:
     if tg_id in SUPERADMINS:
         selected_branch_id = await get_superadmin_selected_branch_id(tg_id)

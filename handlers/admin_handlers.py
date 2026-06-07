@@ -17,7 +17,7 @@ import database as db
 from states import (
     AdminAcceptPending, AdminUpdateWorker, AdminSetSalary, AdminAddSalaryPayment, AdminModifyPayment,
     AdminModifyMonthlySalary, AdminSetDailyHours, AdminSetWorkTime, AdminManualAttendance, AdminQuickAttendance, AdminBranchAdminSettings,
-    AdminSuperadminSettings, AdminContact
+    AdminSuperadminSettings, AdminContact, AdminWorkGroup
 )
 from shared import (
     build_branch_selection_keyboard,
@@ -447,6 +447,204 @@ async def admin_contact_delete(callback_query: types.CallbackQuery, state: FSMCo
         callback_query.message,
         await _admin_contact_text(),
         reply_markup=_build_admin_contact_keyboard(False),
+        parse_mode="HTML",
+    )
+    await callback_query.answer("O'chirildi.")
+
+
+# ===== Bildirishnoma guruhi CRUD (filial-scoped) =====
+#
+# Kelish/ketish/dam/sabab log'lari shu Telegram guruhga yuboriladi.
+# Scope: superadmin -> joriy tanlangan filial; oddiy admin -> o'z filiali.
+# Group ID odatda manfiy (-100...) — supergruh/kanal. Botni guruhga avval
+# admin sifatida qo'shish kerak.
+
+async def _resolve_admin_scope_branch_id(actor_tg_id: int) -> "int | None":
+    branch_ids = await db.get_admin_branch_ids(actor_tg_id)
+    return int(branch_ids[0]) if branch_ids else None
+
+
+def _build_workgroup_keyboard(has_group: bool) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(
+        "✏️ O'zgartirish" if has_group else "➕ Kiritish",
+        callback_data="workgroup:set",
+        style="primary",
+    ))
+    if has_group:
+        kb.add(types.InlineKeyboardButton(
+            "🧪 Sinov xabar yuborish",
+            callback_data="workgroup:test",
+            style="primary",
+        ))
+        kb.add(types.InlineKeyboardButton(
+            "🗑 O'chirish",
+            callback_data="workgroup:delete",
+            style="danger",
+        ))
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
+    return kb
+
+
+async def _workgroup_text(branch_id: "int | None") -> str:
+    if not branch_id:
+        return (
+            "📢 <b>Bildirishnoma guruhi</b>\n\n"
+            "⚠️ Filial topilmadi. Avval filialni tanlang yoki sizga filial biriktirilishini kuting."
+        )
+    branch = await db.get_branch_by_id(branch_id)
+    branch_name = (branch or {}).get("name") or f"#{branch_id}"
+    gid = await db.get_branch_work_log_group_id(branch_id)
+    head = (
+        f"📢 <b>Bildirishnoma guruhi</b>\n"
+        f"🏢 Filial: <b>{html.escape(str(branch_name))}</b>\n\n"
+    )
+    if gid:
+        return head + (
+            f"Joriy guruh ID: <code>{gid}</code>\n\n"
+            "Kelish/ketish/dam/sabab log'lari shu guruhga yuboriladi."
+        )
+    return head + (
+        "Hozircha guruh biriktirilmagan.\n\n"
+        "«➕ Kiritish» orqali guruh ID'ni qo'shing.\n"
+        "💡 Telegram guruh ID odatda manfiy son (masalan, <code>-1001234567890</code>).\n"
+        "Botni o'sha guruhga avval admin sifatida qo'shing."
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data == "workgroup:menu", state="*")
+async def workgroup_menu(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    await state.finish()
+    branch_id = await _resolve_admin_scope_branch_id(callback_query.from_user.id)
+    gid = await db.get_branch_work_log_group_id(branch_id) if branch_id else None
+    await safe_edit_text(
+        callback_query.message,
+        await _workgroup_text(branch_id),
+        reply_markup=_build_workgroup_keyboard(bool(gid)),
+        parse_mode="HTML",
+    )
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data == "workgroup:set", state="*")
+async def workgroup_set_start(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    branch_id = await _resolve_admin_scope_branch_id(callback_query.from_user.id)
+    if not branch_id:
+        return await callback_query.answer("Filial topilmadi. Avval tanlang.", show_alert=True)
+    await state.update_data(workgroup_branch_id=branch_id)
+    await safe_edit_text(
+        callback_query.message,
+        "Guruh <b>chat ID</b>'sini yuboring.\n\n"
+        "Masalan: <code>-1001234567890</code>\n\n"
+        "ID'ni qanday topish kerak:\n"
+        "1) Botni o'sha guruhga admin sifatida qo'shing\n"
+        "2) Guruhga istalgan xabar yozing\n"
+        "3) <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> ochib, "
+        "   <code>chat.id</code> qiymatini oling\n\n"
+        "Bekor qilish uchun /cancel yozing.",
+        parse_mode="HTML",
+    )
+    await AdminWorkGroup.waiting_for_id.set()
+    await callback_query.answer()
+
+
+@dp.message_handler(state=AdminWorkGroup.waiting_for_id, content_types=types.ContentTypes.TEXT)
+async def workgroup_set_save(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMINS:
+        return
+    value = (message.text or "").strip()
+    if value.lower().lstrip("/") == "cancel":
+        await state.finish()
+        branch_id = await _resolve_admin_scope_branch_id(message.from_user.id)
+        gid = await db.get_branch_work_log_group_id(branch_id) if branch_id else None
+        return await message.answer(
+            await _workgroup_text(branch_id),
+            reply_markup=_build_workgroup_keyboard(bool(gid)),
+            parse_mode="HTML",
+        )
+    # ID raqam bo'lishi shart (manfiy ham bo'lishi mumkin)
+    try:
+        group_id = int(value)
+    except ValueError:
+        return await message.reply(
+            "Guruh ID raqam bo'lishi kerak (masalan, <code>-1001234567890</code>). "
+            "Qayta yuboring yoki /cancel.",
+            parse_mode="HTML",
+        )
+
+    data = await state.get_data()
+    branch_id = data.get("workgroup_branch_id") or await _resolve_admin_scope_branch_id(message.from_user.id)
+    if not branch_id:
+        await state.finish()
+        return await message.reply("Filial topilmadi. /start bosing va qaytadan urinib ko'ring.")
+
+    saved = await db.set_branch_work_log_group_id(branch_id, group_id)
+    await state.finish()
+    if not saved:
+        return await message.reply("Saqlash muvaffaqiyatsiz tugadi. Filial topilmadi.")
+
+    # Saqlangach guruhga sinov xabar yuborib, bot o'sha yerda admin ekanini tasdiqlaymiz
+    try:
+        await bot.send_message(
+            group_id,
+            "✅ Bu guruh endi <b>Parfumerose bot</b> bildirishnomalarini oladi.\n"
+            "Kelish/ketish/dam/sabab xabarlari shu yerda chiqadi.",
+            parse_mode="HTML",
+        )
+        verify_note = "✅ Botning guruhga ulanishi tasdiqlandi (sinov xabar yuborildi)."
+    except Exception as exc:
+        verify_note = (
+            "⚠️ Saqlandi, lekin botning guruhga sinov xabari yuborilmadi.\n"
+            f"<code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:120]}</code>\n"
+            "Botni o'sha guruhga admin sifatida qo'shganingizni tekshiring."
+        )
+
+    await message.answer(
+        await _workgroup_text(branch_id) + "\n\n" + verify_note,
+        reply_markup=_build_workgroup_keyboard(True),
+        parse_mode="HTML",
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data == "workgroup:test", state="*")
+async def workgroup_test(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    branch_id = await _resolve_admin_scope_branch_id(callback_query.from_user.id)
+    gid = await db.get_branch_work_log_group_id(branch_id) if branch_id else None
+    if not gid:
+        return await callback_query.answer("Guruh biriktirilmagan.", show_alert=True)
+    try:
+        await bot.send_message(
+            gid,
+            "🧪 <b>Sinov xabar</b> — Parfumerose bot guruhga ulangan va xabar yuborishi mumkin.",
+            parse_mode="HTML",
+        )
+        await callback_query.answer("✅ Yuborildi.", show_alert=True)
+    except Exception as exc:
+        await callback_query.answer(
+            f"❌ Yuborib bo'lmadi: {type(exc).__name__}",
+            show_alert=True,
+        )
+
+
+@dp.callback_query_handler(lambda c: c.data == "workgroup:delete", state="*")
+async def workgroup_delete(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    await state.finish()
+    branch_id = await _resolve_admin_scope_branch_id(callback_query.from_user.id)
+    if not branch_id:
+        return await callback_query.answer("Filial topilmadi.", show_alert=True)
+    await db.clear_branch_work_log_group_id(branch_id)
+    await safe_edit_text(
+        callback_query.message,
+        await _workgroup_text(branch_id),
+        reply_markup=_build_workgroup_keyboard(False),
         parse_mode="HTML",
     )
     await callback_query.answer("O'chirildi.")
