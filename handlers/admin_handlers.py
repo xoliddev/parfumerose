@@ -1643,65 +1643,83 @@ async def process_admin_end_time(message: types.Message, state: FSMContext):
             return
 
     await state.update_data(pending_work_end=end_time)
-    data = await state.get_data()
-    pending_user_id = data.get("pending_user_id", None)
-    final_name = data.get("final_name", "")
-    actor_name = data.get("pending_action_actor_name") or format_admin_actor(message.from_user.id, message.from_user.full_name)
-    worker_record = await db.get_worker_by_tg_id(pending_user_id) if pending_user_id else None
-    branch_name = worker_record.get("branch_name") if worker_record else None
-    worker_id = worker_record.get("id") if worker_record else None
-    start_time = data.get("pending_work_start")
-    daily_hours = _calculate_hours_from_schedule(start_time, end_time)
-    start_obj = datetime.datetime.strptime(start_time, "%H:%M").time() if start_time else None
-    end_obj = datetime.datetime.strptime(end_time, "%H:%M").time() if end_time else None
-
-    async with db.pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE workers SET work_start = $1, work_end = $2, daily_work_hours = $3 WHERE tg_id = $4",
-            start_obj,
-            end_obj,
-            daily_hours,
-            pending_user_id,
-        )
-
-    pending_requests.pop(pending_user_id, None)
-
-    branch_suffix = f" Filial: {branch_name}." if branch_name else ""
-    schedule_text = _format_schedule_window(start_time, end_time)
-    if not start_time and not end_time:
-        reply_text = (
-            f"Foydalanuvchi qabul qilindi, ismi: {final_name}.{branch_suffix}\n"
-            "Ish vaqti hozircha belgilanmadi.\n"
-            "Endi o‘sha xodim /start bosib botdan foydalanishi mumkin."
-        )
-        worker_text = f"Siz qabul qilindingiz! Sizning ismingiz: {final_name}\n"
-        if branch_name:
-            worker_text += f"Filialingiz: {branch_name}\n"
-        worker_text += "Endi /start bosib botdan foydalanishingiz mumkin."
-    else:
-        reply_text = (
-            f"Foydalanuvchi qabul qilindi, ismi: {final_name}.{branch_suffix}\n"
-            f"Ish vaqti: {schedule_text}.\n"
-            "Endi /start bosib botdan foydalanishingiz mumkin."
-        )
-        worker_text = f"Siz qabul qilindingiz! Sizning ismingiz: {final_name}\n"
-        if branch_name:
-            worker_text += f"Filialingiz: {branch_name}\n"
-        worker_text += f"Ish vaqti: {schedule_text}.\n"
-        worker_text += "Endi /start bosib botdan foydalanishingiz mumkin."
-
-    await message.reply(reply_text, reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True))
+    # Butun yakuniy blok try/finally bilan o'ralgan — UPDATE yoki reply xato
+    # bersa ham, oqim "qotib qolmasin" (state.finish har doim bajariladi).
     try:
-        await bot.send_message(pending_user_id, worker_text)
-    except Exception as e:
-        logging.error(f"Xodimga xabar yuborishda xatolik: {e}")
+        data = await state.get_data()
+        pending_user_id = data.get("pending_user_id", None)
+        final_name = data.get("final_name", "")
+        actor_name = data.get("pending_action_actor_name") or format_admin_actor(message.from_user.id, message.from_user.full_name)
+        worker_record = await db.get_worker_by_tg_id(pending_user_id) if pending_user_id else None
+        branch_name = worker_record.get("branch_name") if worker_record else None
+        worker_id = worker_record.get("id") if worker_record else None
+        start_time = data.get("pending_work_start")
+        daily_hours = _calculate_hours_from_schedule(start_time, end_time)
+        start_obj = datetime.datetime.strptime(start_time, "%H:%M").time() if start_time else None
+        end_obj = datetime.datetime.strptime(end_time, "%H:%M").time() if end_time else None
 
-    await notify_admins_and_group(
-        f"✅ {actor_name} arizani qabul qildi: {final_name}",
-        worker_id=worker_id,
-    )
+        async with db.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE workers SET work_start = $1, work_end = $2, daily_work_hours = $3 WHERE tg_id = $4",
+                start_obj,
+                end_obj,
+                daily_hours,
+                pending_user_id,
+            )
 
-    await state.finish()
+        pending_requests.pop(pending_user_id, None)
+
+        branch_suffix = f" Filial: {branch_name}." if branch_name else ""
+        schedule_text = _format_schedule_window(start_time, end_time)
+        if not start_time and not end_time:
+            reply_text = (
+                f"Foydalanuvchi qabul qilindi, ismi: {final_name}.{branch_suffix}\n"
+                "Ish vaqti hozircha belgilanmadi.\n"
+                "Endi o‘sha xodim /start bosib botdan foydalanishi mumkin."
+            )
+            worker_text = f"Siz qabul qilindingiz! Sizning ismingiz: {final_name}\n"
+            if branch_name:
+                worker_text += f"Filialingiz: {branch_name}\n"
+            worker_text += "Endi /start bosib botdan foydalanishingiz mumkin."
+        else:
+            reply_text = (
+                f"Foydalanuvchi qabul qilindi, ismi: {final_name}.{branch_suffix}\n"
+                f"Ish vaqti: {schedule_text}.\n"
+                "Endi /start bosib botdan foydalanishingiz mumkin."
+            )
+            worker_text = f"Siz qabul qilindingiz! Sizning ismingiz: {final_name}\n"
+            if branch_name:
+                worker_text += f"Filialingiz: {branch_name}\n"
+            worker_text += f"Ish vaqti: {schedule_text}.\n"
+            worker_text += "Endi /start bosib botdan foydalanishingiz mumkin."
+
+        await message.reply(reply_text, reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True))
+        try:
+            await bot.send_message(pending_user_id, worker_text)
+        except Exception as e:
+            logging.error(f"Xodimga xabar yuborishda xatolik: {e}")
+
+        await notify_admins_and_group(
+            f"✅ {actor_name} arizani qabul qildi: {final_name}",
+            worker_id=worker_id,
+        )
+    except Exception as exc:
+        logging.exception("Ariza qabul oxirgi bosqichida xatolik: %s", exc)
+        try:
+            await message.reply(
+                "❌ Ish vaqtini saqlashda xatolik yuz berdi.\n"
+                f"<code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:200]}</code>\n\n"
+                "Xodim yaratilgan bo'lsa-da, ish vaqti belgilanmagan bo'lishi mumkin. "
+                "Admin menyusidan tahrirlash orqali to'g'rilang.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    finally:
+        try:
+            await state.finish()
+        except Exception:
+            pass
 
 
 @dp.callback_query_handler(

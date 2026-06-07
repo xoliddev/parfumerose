@@ -1,4 +1,5 @@
 import datetime
+import html
 import logging
 
 from aiogram import types
@@ -68,6 +69,14 @@ def _format_schedule_text(start_text: str | None, end_text: str | None) -> str:
 
 
 async def _finish_admin_add_worker(message: types.Message, state: FSMContext):
+    """Yakuniy bosqich: bazaga qo'shadi va admin'ga xulosa yuboradi.
+
+    Butun blok try/except/finally bilan o'ralgan — istalgan kichik bosqich
+    xato bersa ham, foydalanuvchi aniq xato matnini ko'radi va state to'liq
+    tozalanadi (oqim "qotib qolmasin"). Avval faqat create_worker_record
+    ushlanardi; build_admin_home_payload yoki strptime yoki message.reply
+    xato bersa, foydalanuvchi hech narsa ko'rmasdi.
+    """
     data = await state.get_data()
     full_name = data.get("new_worker_name")
     tg_id = data.get("new_worker_tg_id")
@@ -76,12 +85,13 @@ async def _finish_admin_add_worker(message: types.Message, state: FSMContext):
     branch_id = data.get("new_worker_branch_id")
     start_text = data.get("new_worker_start_time")
     end_text = data.get("new_worker_end_time")
-    daily_work_hours = _calculate_daily_hours_from_range(start_text, end_text)
-    start_time = datetime.datetime.strptime(start_text, "%H:%M").time() if start_text else None
-    end_time = datetime.datetime.strptime(end_text, "%H:%M").time() if end_text else None
 
     try:
-        worker_id = await db.create_worker_record(
+        daily_work_hours = _calculate_daily_hours_from_range(start_text, end_text)
+        start_time = datetime.datetime.strptime(start_text, "%H:%M").time() if start_text else None
+        end_time = datetime.datetime.strptime(end_text, "%H:%M").time() if end_text else None
+
+        await db.create_worker_record(
             full_name=full_name,
             tg_id=tg_id,
             pay_type=pay_type,
@@ -92,25 +102,51 @@ async def _finish_admin_add_worker(message: types.Message, state: FSMContext):
             has_phone=bool(tg_id),
             branch_id=branch_id,
         )
-    except Exception as exc:
-        logging.error(f"Xodim qo'shishda xatolik: {exc}")
-        return await message.reply("Xodim qo'shishda xatolik yuz berdi. Balki bu Telegram ID allaqachon mavjuddir.")
 
-    await state.finish()
-    phone_text = "Telefoni bor" if tg_id else "Telefoni yo'q"
-    branch = await db.get_branch_by_id(branch_id)
-    branch_name = branch["name"] if branch else "Belgilanmagan"
-    await message.reply(
-        f"Yangi xodim qo'shildi.\n\n"
-        f"ID: {worker_id}\n"
-        f"Ism: {full_name}\n"
-        f"Filial: {branch_name}\n"
-        f"To'lov turi: {pay_type}\n"
-        f"Miqdor: {pay_amount:,.0f} so'm\n"
-        f"Ish vaqti: {_format_schedule_text(start_text, end_text)}\n"
-        f"Holati: {phone_text}",
-        reply_markup=(await build_admin_home_payload(message.from_user.id))[1],
-    )
+        phone_text = "Telefoni bor" if tg_id else "Telefoni yo'q"
+        branch = await db.get_branch_by_id(branch_id) if branch_id else None
+        branch_name = branch["name"] if branch else "Belgilanmagan"
+        summary = (
+            f"✅ Yangi xodim qo'shildi.\n\n"
+            f"Ism: {full_name}\n"
+            f"Filial: {branch_name}\n"
+            f"To'lov turi: {pay_type}\n"
+            f"Miqdor: {pay_amount:,.0f} so'm\n"
+            f"Ish vaqti: {_format_schedule_text(start_text, end_text)}\n"
+            f"Holati: {phone_text}"
+        )
+
+        # Asosiy menyu klaviaturasini olishda xato bo'lsa ham, xulosa matni
+        # baribir yuborilsin (xodim allaqachon yaratilgan).
+        reply_markup = None
+        try:
+            payload = await build_admin_home_payload(message.from_user.id)
+            reply_markup = payload[1]
+        except Exception as menu_exc:
+            logging.error("Menyu yasashda xato: %s", menu_exc)
+
+        await message.reply(summary, reply_markup=reply_markup)
+    except Exception as exc:
+        logging.exception("Xodim qo'shishda xatolik: %s", exc)
+        try:
+            await message.reply(
+                "❌ Xodim qo'shishda xatolik yuz berdi.\n"
+                f"<code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:200]}</code>\n\n"
+                "Iltimos qaytadan urinib ko'ring. Telegram ID dublikat bo'lishi mumkin.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            # Eng oxirgi himoya — hech bo'lmaganda bir nima yuborib ko'ramiz
+            try:
+                await message.reply("❌ Xodim qo'shishda xatolik. Qaytadan urinib ko'ring.")
+            except Exception:
+                pass
+    finally:
+        # State har doim tozalansin — oqim "qotmasin"
+        try:
+            await state.finish()
+        except Exception:
+            pass
 
 
 async def notify_phone_less_pending_admins():
