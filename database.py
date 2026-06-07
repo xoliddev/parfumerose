@@ -1561,6 +1561,14 @@ async def ensure_attendance_v2_schema():
         await conn.execute("ALTER TABLE workers ADD COLUMN IF NOT EXISTS has_phone BOOLEAN DEFAULT TRUE")
         await conn.execute("ALTER TABLE workers ADD COLUMN IF NOT EXISTS is_student BOOLEAN DEFAULT FALSE")
         await conn.execute("ALTER TABLE workers ADD COLUMN IF NOT EXISTS last_absence_prompt_at TIMESTAMP WITH TIME ZONE")
+        # salary_payments.kind — 'salary' (oddiy maosh) yoki 'advance' (avans).
+        # Eski yozuvlar 'salary' deb hisoblanadi.
+        await conn.execute(
+            "ALTER TABLE salary_payments ADD COLUMN IF NOT EXISTS kind VARCHAR(16) DEFAULT 'salary'"
+        )
+        await conn.execute(
+            "UPDATE salary_payments SET kind = 'salary' WHERE kind IS NULL"
+        )
 
         await conn.execute(
             """

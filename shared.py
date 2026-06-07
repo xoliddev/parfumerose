@@ -324,6 +324,60 @@ def build_paginated_inline(
 
 
 
+PAY_TYPE_LABELS = {
+    "daily": ("🌞", "Kunlik", "kun"),
+    "weekly": ("📅", "Haftalik", "hafta"),
+    "monthly": ("🗓", "Oylik", "oy"),
+}
+
+PAYMENT_KIND_LABELS = {
+    "salary": ("💰", "Maosh"),
+    "advance": ("💸", "Avans"),
+}
+
+
+def format_pay_status(
+    pay_type: Optional[str],
+    pay_amount: Any = None,
+    monthly_salary: Any = None,
+    *,
+    short: bool = False,
+) -> str:
+    """Xodimning to'lov turini bir xil ko'rinishda formatlaydi.
+
+    short=False: "🌞 Kunlik — 150,000 so'm/kun"
+    short=True:  "🌞 Kunlik" (tugmalar uchun)
+
+    pay_amount ustun bo'lsa shuni, bo'lmasa monthly_salary'ni ishlatamiz
+    (eski yozuvlar uchun moslashuv).
+    """
+    pt = (pay_type or "monthly").lower()
+    icon, label, unit = PAY_TYPE_LABELS.get(pt, PAY_TYPE_LABELS["monthly"])
+    if short:
+        return f"{icon} {label}"
+    # Miqdor: pay_amount ustun, lekin agar 0 yoki None bo'lsa monthly_salary'ni sinab ko'ramiz
+    raw_amount = pay_amount if pay_amount not in (None, 0, 0.0) else monthly_salary
+    try:
+        amount = float(raw_amount or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    return f"{icon} {label} — <b>{amount:,.0f}</b> so'm/{unit}"
+
+
+def format_payment_kind(kind: Optional[str], *, short: bool = False) -> str:
+    """To'lov turini formatlaydi: 'salary' yoki 'advance'."""
+    k = (kind or "salary").lower()
+    icon, label = PAYMENT_KIND_LABELS.get(k, PAYMENT_KIND_LABELS["salary"])
+    return icon if short else f"{icon} {label}"
+
+
+def pay_type_emoji(pay_type: Optional[str]) -> str:
+    """Tugma matnida ishlatadigan qisqa emoji (1 ta belgi)."""
+    pt = (pay_type or "monthly").lower()
+    icon, _, _ = PAY_TYPE_LABELS.get(pt, PAY_TYPE_LABELS["monthly"])
+    return icon
+
+
 def format_number(num) -> str:
     """
     Raqamlarni chiroyli formatlaydi: agar butun son bo'lsa, kasr qismini olib tashlaydi.

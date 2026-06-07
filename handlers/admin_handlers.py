@@ -27,6 +27,8 @@ from shared import (
     build_paginated_inline,
     describe_admin_action_result,
     format_admin_actor,
+    format_pay_status,
+    format_payment_kind,
     get_admin_home_text,
     get_admin_action_lock,
     get_admin_action_result,
@@ -1145,42 +1147,53 @@ async def handle_salary_worker(callback_query: types.CallbackQuery, state: FSMCo
 
         async with db.pool.acquire() as conn:
             worker_record = await conn.fetchrow(
-                                                "SELECT w.full_name, w.monthly_salary, b.name AS branch_name "
-                                                "FROM workers w LEFT JOIN branches b ON b.id = w.branch_id "
-                                                "WHERE w.id = $1",
-                                                worker_id)
+                "SELECT w.full_name, w.monthly_salary, w.pay_type, w.pay_amount, "
+                "       b.name AS branch_name "
+                "FROM workers w LEFT JOIN branches b ON b.id = w.branch_id "
+                "WHERE w.id = $1",
+                worker_id,
+            )
             if not worker_record:
                 await callback_query.message.edit_text("❌ Xodim topilmadi.")
                 return
 
-            # --- 2-QADAM: Ma'lumotlarni xavfsiz olish va standart qiymat belgilash ---
-            # Ismdagi maxsus belgilardan himoyalanamiz
             full_name = html.escape(worker_record['full_name'] or "Noma'lum xodim")
             branch_name = html.escape(worker_record['branch_name'] or "")
-
-            # monthly_salary 'None' bo'lsa, 0.0 ga o'tkazamiz va keyin float'ga o'giramiz
             monthly_salary = float(worker_record['monthly_salary'] or 0.0)
+            pay_type = worker_record['pay_type']
+            pay_amount = float(worker_record['pay_amount'] or 0.0)
 
-            total_paid_record = await conn.fetchval("""
-                                                    SELECT SUM(amount)
-                                                    FROM salary_payments
-                                                    WHERE worker_id = $1
-                                                      AND to_char(payment_date, 'YYYY-MM') = $2
-                                                    """, worker_id, year_month_str)
+            # Maosh va avans alohida hisoblanadi
+            paid_breakdown = await conn.fetch(
+                """
+                SELECT COALESCE(kind, 'salary') AS kind, SUM(amount) AS total
+                FROM salary_payments
+                WHERE worker_id = $1 AND to_char(payment_date, 'YYYY-MM') = $2
+                GROUP BY COALESCE(kind, 'salary')
+                """,
+                worker_id, year_month_str,
+            )
 
-            # total_paid 'None' bo'lsa, 0.0 ga o'tkazamiz va keyin float'ga o'giramiz
-            total_paid = float(total_paid_record or 0.0)
-
-        # Qoldiqni hisoblash
+        salary_paid = 0.0
+        advance_paid = 0.0
+        for row in paid_breakdown:
+            if row['kind'] == 'advance':
+                advance_paid = float(row['total'] or 0)
+            else:
+                salary_paid = float(row['total'] or 0)
+        total_paid = salary_paid + advance_paid
         remaining = (monthly_salary - total_paid) if monthly_salary > 0 else 0.0
 
-        # Xabarni formatlash (endi barcha o'zgaruvchilar xavfsiz)
         text = f"<b>{full_name}</b> uchun {year}-{month} statistikasi:\n\n"
         if branch_name:
             text += f"🏢 Filial: <b>{branch_name}</b>\n"
         text += (
+            f"💼 To'lov turi: {format_pay_status(pay_type, pay_amount, monthly_salary)}\n\n"
             f"💳 Tayinlangan maosh: <b>{monthly_salary:,.0f}</b> so'm\n"
-            f"✅ To‘langan: <b>{total_paid:,.0f}</b> so'm\n"
+            f"💰 Maosh to'langan: <b>{salary_paid:,.0f}</b> so'm\n"
+            f"💸 Avans to'langan: <b>{advance_paid:,.0f}</b> so'm\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"✅ Jami to'langan: <b>{total_paid:,.0f}</b> so'm\n"
             f"❗️ Qolgan: <b>{remaining:,.0f}</b> so'm\n"
         )
 
@@ -1268,12 +1281,60 @@ async def handle_add_payment(callback_query: types.CallbackQuery, state: FSMCont
         return
 
     await state.update_data(payment_worker_id=worker_id, payment_year=year, payment_month=month)
-    await AdminAddSalaryPayment.waiting_for_payment_amount.set()
     worker_label = worker["full_name"] + (f" [{worker['branch_name']}]" if worker["branch_name"] else "")
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        types.InlineKeyboardButton(
+            "💰 Maosh",
+            callback_data=f"pay_kind:salary:{worker_id}_{year}_{month}",
+            style="success",
+        ),
+        types.InlineKeyboardButton(
+            "💸 Avans",
+            callback_data=f"pay_kind:advance:{worker_id}_{year}_{month}",
+            style="primary",
+        ),
+    )
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"salary_worker_{worker_id}_{year}_{month}", style="primary"))
     await callback_query.message.edit_text(
-        f"<b>{worker_label}</b> uchun {year}-{month} oyi bo‘yicha to‘lov miqdorini kiriting:",
+        f"<b>{html.escape(worker_label)}</b> uchun {year}-{month} oyiga "
+        f"to'lov turini tanlang:\n\n"
+        f"💰 <b>Maosh</b> — odatdagi oylik to'lov\n"
+        f"💸 <b>Avans</b> — oylik tugamasdan oldingi to'lov",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("pay_kind:"))
+async def handle_payment_kind(callback_query: types.CallbackQuery, state: FSMContext):
+    """Avans yoki maosh tanlangach miqdor so'raymiz."""
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    try:
+        _, kind, rest = callback_query.data.split(":", 2)
+        worker_id_str, year, month = rest.split("_")
+        worker_id = int(worker_id_str)
+    except (ValueError, IndexError):
+        return await callback_query.answer("Noto'g'ri ma'lumot.", show_alert=True)
+    if kind not in ("salary", "advance"):
+        return await callback_query.answer("Noto'g'ri to'lov turi.", show_alert=True)
+    if not await db.admin_can_access_worker(callback_query.from_user.id, worker_id):
+        return await callback_query.answer("Bu xodim sizning filialingizga tegishli emas.", show_alert=True)
+
+    await state.update_data(
+        payment_worker_id=worker_id,
+        payment_year=year,
+        payment_month=month,
+        payment_kind=kind,
+    )
+    await AdminAddSalaryPayment.waiting_for_payment_amount.set()
+    kind_label = format_payment_kind(kind)
+    await callback_query.message.edit_text(
+        f"{kind_label} miqdorini kiriting (masalan: 500000):",
         parse_mode="HTML",
     )
+    await callback_query.answer()
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith("payment_details_"))
@@ -1289,25 +1350,29 @@ async def handle_payment_details(callback_query: types.CallbackQuery, state: FSM
 
     # --- TUZATISH: pool o'rniga db.pool ishlatiladi ---
     async with db.pool.acquire() as conn:
-        rows = await conn.fetch("""
-                                SELECT id, payment_date, amount
-                                FROM salary_payments
-                                WHERE worker_id = $1
-                                  AND to_char(payment_date, 'YYYY-MM') = $2
-                                ORDER BY payment_date
-                                """, worker_id, year_month_str)
+        rows = await conn.fetch(
+            """
+            SELECT id, payment_date, amount, kind
+            FROM salary_payments
+            WHERE worker_id = $1
+              AND to_char(payment_date, 'YYYY-MM') = $2
+            ORDER BY payment_date
+            """,
+            worker_id, year_month_str,
+        )
 
     if not rows:
-        await callback_query.message.edit_text(f"{year}-{month} oyi uchun to‘lovlar topilmadi.")
+        await callback_query.message.edit_text(f"{year}-{month} oyi uchun to'lovlar topilmadi.")
         return
 
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     for i, row in enumerate(rows, start=1):
         date_str = row['payment_date'].strftime("%d.%m.%Y")
         amount = float(row['amount'] or 0.0)
+        kind_emoji = format_payment_kind(row['kind'], short=True)
         keyboard.add(
             types.InlineKeyboardButton(
-                text=f"{i}) {date_str} — {amount:,.0f} so‘m",
+                text=f"{i}) {kind_emoji} {date_str} — {amount:,.0f} so'm",
                 callback_data=f"payment_detail_{row['id']}", style="primary")
         )
     keyboard.add(
@@ -1440,6 +1505,9 @@ async def process_payment_amount_combined(message: types.Message, state: FSMCont
     worker_id = data.get("payment_worker_id")
     year = data.get("payment_year")
     month = data.get("payment_month")
+    kind = data.get("payment_kind", "salary")  # eski oqim bilan ham mos kelsin
+    if kind not in ("salary", "advance"):
+        kind = "salary"
     if not worker_id or not await db.admin_can_access_worker(message.from_user.id, int(worker_id)):
         await state.finish()
         return await message.reply("Bu xodim sizning filialingizga tegishli emas.")
@@ -1447,13 +1515,13 @@ async def process_payment_amount_combined(message: types.Message, state: FSMCont
     oy = f"{year}-{month}"
     payment_date = datetime.date(int(year), int(month), 1)
 
-    # --- TUZATISH: db.pool ishlatiladi ---
     async with db.pool.acquire() as conn:
         worker_record = await conn.fetchrow(
-                                            "SELECT w.full_name, w.monthly_salary, w.tg_id, b.name AS branch_name "
-                                            "FROM workers w LEFT JOIN branches b ON b.id = w.branch_id "
-                                            "WHERE w.id = $1",
-                                            worker_id)
+            "SELECT w.full_name, w.monthly_salary, w.tg_id, b.name AS branch_name "
+            "FROM workers w LEFT JOIN branches b ON b.id = w.branch_id "
+            "WHERE w.id = $1",
+            worker_id,
+        )
         if not worker_record:
             return await message.reply("Xodim topilmadi.")
 
@@ -1464,36 +1532,39 @@ async def process_payment_amount_combined(message: types.Message, state: FSMCont
         monthly_salary = monthly_salary or 0.0
 
         await conn.execute(
-            "INSERT INTO salary_payments (worker_id, payment_date, amount) VALUES ($1, $2, $3)",
-            worker_id, payment_date, amount
+            "INSERT INTO salary_payments (worker_id, payment_date, amount, kind) VALUES ($1, $2, $3, $4)",
+            worker_id, payment_date, amount, kind,
         )
 
         sum_payment_record = await conn.fetchval(
             "SELECT SUM(amount) FROM salary_payments WHERE worker_id = $1 AND to_char(payment_date, 'YYYY-MM') = $2",
-            worker_id, oy
+            worker_id, oy,
         )
         sum_payment = sum_payment_record or 0.0
 
     rem_text = ""
     if monthly_salary > 0:
         remaining = monthly_salary - sum_payment
-        rem_text = f"\nQolgan: {float(remaining):,.0f} so‘m"
+        rem_text = f"\nQolgan: {float(remaining):,.0f} so'm"
 
     payment_time_str = datetime.datetime.now(tashkent_tz).strftime('%H:%M:%S')
     worker_label = full_name + (f" [{branch_name}]" if branch_name else "")
+    kind_label = format_payment_kind(kind)
     reply = (
-        f"✅ To‘lov qabul qilindi.\n"
+        f"✅ {kind_label} qabul qilindi.\n"
         f"Xodim: {worker_label}\n"
         f"Sana: {payment_date.strftime('%Y-%m-%d')} {payment_time_str}\n"
-        f"Miqdor: {amount:,.0f} so‘m\n"
-        f"O‘sha oy jami: {float(sum_payment):,.0f} so‘m{rem_text}"
+        f"Miqdor: {amount:,.0f} so'm\n"
+        f"O'sha oy jami: {float(sum_payment):,.0f} so'm{rem_text}"
     )
     await message.reply(reply)
 
     try:
         await bot.send_message(
             worker_tg,
-            f"🟢 Sizga {payment_date.strftime('%Y-%m-%d')} kuni {amount:,.0f} so‘m to‘lov tushdi.\nJami shu oyda: {float(sum_payment):,.0f} so‘m." + rem_text
+            f"🟢 Sizga {payment_date.strftime('%Y-%m-%d')} kuni "
+            f"{kind_label} sifatida {amount:,.0f} so'm to'lov tushdi.\n"
+            f"Jami shu oyda: {float(sum_payment):,.0f} so'm." + rem_text,
         )
     except Exception as e:
         logging.warning(f"Xodimga xabar yuborishda xatolik: {e}")
@@ -1947,17 +2018,15 @@ async def view_worker(callback_query: types.CallbackQuery):
     added_date = worker['added_date'].astimezone(tashkent_tz).strftime('%Y-%m-%d %H:%M')
 
     text = (
-        f"<b>Xodim ID: {worker['id']}</b>\n"
-        f"TG ID: {worker['tg_id'] or 'yoq'}\n"
-        f"Ism: {worker['full_name']}\n"
-        f"Filial: {worker['branch_name'] or 'Belgilanmagan'}\n"
-        f"Username: {('@' + worker['username']) if worker['username'] else 'Yoq'}\n"
-        f"To'lov turi: {pay_type}\n"
-        f"Tayinlangan miqdor: {pay_amount:,.0f} so'm\n"
-        f"Aloqa holati: {phone_status}\n"
-        f"Kunlik ish soati: {daily_hrs if daily_hrs > 0 else 'Belgilanmagan'} soat\n"
-        f"Ish vaqti: {w_start} - {w_end}\n"
-        f"Qo'shilgan sana: {added_date}"
+        f"👤 <b>{html.escape(str(worker['full_name']))}</b>\n\n"
+        f"🏢 Filial: {html.escape(str(worker['branch_name'] or 'Belgilanmagan'))}\n"
+        f"🆔 TG ID: {worker['tg_id'] or 'yoq'}\n"
+        f"📛 Username: {('@' + worker['username']) if worker['username'] else 'Yoq'}\n\n"
+        f"💼 {format_pay_status(pay_type, pay_amount, monthly_salary)}\n\n"
+        f"📞 Aloqa holati: {phone_status}\n"
+        f"🕒 Kunlik ish soati: {daily_hrs if daily_hrs > 0 else 'Belgilanmagan'} soat\n"
+        f"⏰ Ish vaqti: {w_start} - {w_end}\n"
+        f"📅 Qo'shilgan sana: {added_date}"
     )
 
     kb = types.InlineKeyboardMarkup().add(
@@ -2723,12 +2792,12 @@ async def modify_payment_list_new(callback_query: types.CallbackQuery):
     async with db.pool.acquire() as conn:
         payments = await conn.fetch(
             """
-            SELECT id, payment_date, amount, payment_time
+            SELECT id, payment_date, amount, payment_time, kind
             FROM salary_payments
             WHERE worker_id = $1
               AND to_char(payment_date, 'YYYY-MM') = $2
             """,
-            worker_id, current_month
+            worker_id, current_month,
         )
 
     if not payments:
@@ -2743,7 +2812,8 @@ async def modify_payment_list_new(callback_query: types.CallbackQuery):
         date_str = p_datetime.strftime("%d.%m.%Y")
         time_str = p_datetime.strftime("%H:%M")
         amount_str = f"{float(p['amount']):,.0f}"
-        text += f"<b>{i}.</b> {date_str} {time_str} — <b>{amount_str} so'm</b>\n"
+        kind_label = format_payment_kind(p['kind'])
+        text += f"<b>{i}.</b> {kind_label} — {date_str} {time_str} — <b>{amount_str} so'm</b>\n"
         keyboard.add(
             types.InlineKeyboardButton(text=f"✏️ Tahrirlash ({i})", callback_data=f"change_{p['id']}", style="primary")
         )
@@ -2949,7 +3019,7 @@ async def old_payments_handler(message: types.Message):
     async with db.pool.acquire() as conn:
         if worker_id is None:
             query = """
-                    SELECT w.full_name, sp.payment_time, sp.amount, b.name AS branch_name
+                    SELECT w.full_name, sp.payment_time, sp.amount, sp.kind, b.name AS branch_name
                     FROM salary_payments sp
                              JOIN workers w ON sp.worker_id = w.id
                              LEFT JOIN branches b ON b.id = w.branch_id
@@ -2969,7 +3039,7 @@ async def old_payments_handler(message: types.Message):
                 rows = await conn.fetch(query, *params)
         else:
             query = """
-                    SELECT w.full_name, sp.payment_time, sp.amount, b.name AS branch_name
+                    SELECT w.full_name, sp.payment_time, sp.amount, sp.kind, b.name AS branch_name
                     FROM salary_payments sp
                              JOIN workers w ON sp.worker_id = w.id
                              LEFT JOIN branches b ON b.id = w.branch_id
@@ -2989,7 +3059,8 @@ async def old_payments_handler(message: types.Message):
         date_str = p_datetime.strftime('%d.%m.%Y')
         time_str = p_datetime.strftime('%H:%M')
         branch_suffix = f" [{row['branch_name']}]" if row.get('branch_name') else ""
-        text += f"<b>{i}.</b> {date_str} {time_str} | {row['full_name']}{branch_suffix}: <b>{float(row['amount']):,.0f} so'm</b>\n"
+        kind_emoji = format_payment_kind(row.get('kind'), short=True)
+        text += f"<b>{i}.</b> {kind_emoji} {date_str} {time_str} | {row['full_name']}{branch_suffix}: <b>{float(row['amount']):,.0f} so'm</b>\n"
 
     await message.reply(text, parse_mode="HTML")
 

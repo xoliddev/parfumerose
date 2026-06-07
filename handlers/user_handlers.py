@@ -21,6 +21,8 @@ from shared import (
     build_absence_review_keyboard,
     pending_requests,
     describe_admin_action_result,
+    format_pay_status,
+    format_payment_kind,
     get_admin_action_lock,
     get_admin_action_result,
     notify_admins,
@@ -428,19 +430,23 @@ def _build_employee_back_keyboard() -> InlineKeyboardMarkup:
 async def _build_worker_salary_text(user_id: int) -> str:
     async with db.pool.acquire() as conn:
         worker_record = await conn.fetchrow(
-            "SELECT id, full_name, monthly_salary FROM workers WHERE tg_id = $1",
+            "SELECT id, full_name, monthly_salary, pay_type, pay_amount "
+            "FROM workers WHERE tg_id = $1",
             user_id,
         )
         if not worker_record:
             return "Siz ro'yxatdan o'tmagansiz."
 
-        wid, full_name, monthly_salary = worker_record.values()
-        monthly_salary = monthly_salary or 0.0
+        wid = worker_record["id"]
+        full_name = worker_record["full_name"]
+        monthly_salary = float(worker_record["monthly_salary"] or 0.0)
+        pay_type = worker_record["pay_type"]
+        pay_amount = float(worker_record["pay_amount"] or 0.0)
         year_month_str = datetime.date.today().strftime("%Y-%m")
 
         payments = await conn.fetch(
             """
-            SELECT payment_date, payment_time, amount
+            SELECT payment_date, payment_time, amount, kind
             FROM salary_payments
             WHERE worker_id = $1
               AND to_char(payment_date, 'YYYY-MM') = $2
@@ -450,19 +456,29 @@ async def _build_worker_salary_text(user_id: int) -> str:
             year_month_str,
         )
 
-    total_paid = sum(p["amount"] for p in payments) if payments else 0.0
+    salary_paid = sum(float(p['amount']) for p in payments if (p['kind'] or 'salary') == 'salary')
+    advance_paid = sum(float(p['amount']) for p in payments if (p['kind'] or 'salary') == 'advance')
+    total_paid = salary_paid + advance_paid
     remaining = (monthly_salary - total_paid) if monthly_salary > 0 else 0.0
 
-    text = f"Hurmatli {full_name},\nTayinlangan maosh: {float(monthly_salary):,.0f} so'm\n"
-    text += f"Bugungi kunga qadar olingan: {float(total_paid):,.0f} so'm\n"
-    text += f"Qolgan: {float(remaining):,.0f} so'm\n\n"
+    text = (
+        f"Hurmatli <b>{html.escape(str(full_name))}</b>,\n\n"
+        f"💼 To'lov turi: {format_pay_status(pay_type, pay_amount, monthly_salary)}\n\n"
+        f"💳 Tayinlangan maosh: <b>{monthly_salary:,.0f}</b> so'm\n"
+        f"💰 Maosh olingan: <b>{salary_paid:,.0f}</b> so'm\n"
+        f"💸 Avans olingan: <b>{advance_paid:,.0f}</b> so'm\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"✅ Jami olingan: <b>{total_paid:,.0f}</b> so'm\n"
+        f"❗ Qolgan: <b>{remaining:,.0f}</b> so'm"
+    )
     if payments:
-        text += "Joriy oy to'lovlar:"
+        text += "\n\n📄 <b>Joriy oy to'lovlar:</b>"
         for i, p in enumerate(payments, start=1):
             p_datetime = p["payment_time"].astimezone(tashkent_tz)
             p_date_str = p_datetime.strftime("%d.%m.%Y")
             p_time_str = p_datetime.strftime("%H:%M")
-            text += f"\n{i}. {p_date_str} {p_time_str} — {float(p['amount']):,.0f} so'm"
+            kind_label = format_payment_kind(p['kind'])
+            text += f"\n{i}. {kind_label} — {p_date_str} {p_time_str} — <b>{float(p['amount']):,.0f}</b> so'm"
     return text
 
 
@@ -559,7 +575,11 @@ async def employee_menu_callback(callback_query: types.CallbackQuery, state: FSM
 
     if action == "salary":
         text = await _build_worker_salary_text(callback_query.from_user.id)
-        await callback_query.message.edit_text(text, reply_markup=_build_employee_back_keyboard())
+        await callback_query.message.edit_text(
+            text,
+            reply_markup=_build_employee_back_keyboard(),
+            parse_mode="HTML",
+        )
         return await callback_query.answer()
 
     if action == "help":
@@ -1094,41 +1114,61 @@ async def process_absence_message_non_text(message: types.Message):
 async def worker_salary(message: types.Message):
     user_id = message.from_user.id
 
-    # --- TUZATISH: pool o'rniga db.pool ishlatiladi ---
     async with db.pool.acquire() as conn:
-        worker_record = await conn.fetchrow("SELECT id, full_name, monthly_salary FROM workers WHERE tg_id = $1",
-                                            user_id)
+        worker_record = await conn.fetchrow(
+            "SELECT id, full_name, monthly_salary, pay_type, pay_amount "
+            "FROM workers WHERE tg_id = $1",
+            user_id,
+        )
 
         if not worker_record:
             return await message.reply("Siz ro'yxatdan o'tmagansiz.")
 
-        wid, full_name, monthly_salary = worker_record.values()
-        monthly_salary = monthly_salary or 0.0
+        wid = worker_record["id"]
+        full_name = worker_record["full_name"]
+        monthly_salary = float(worker_record["monthly_salary"] or 0.0)
+        pay_type = worker_record["pay_type"]
+        pay_amount = float(worker_record["pay_amount"] or 0.0)
         year_month_str = datetime.date.today().strftime("%Y-%m")
 
-        payments = await conn.fetch("""
-                                    SELECT payment_date, payment_time, amount
-                                    FROM salary_payments
-                                    WHERE worker_id = $1
-                                      AND to_char(payment_date, 'YYYY-MM') = $2
-                                    ORDER BY payment_time
-                                    """, wid, year_month_str)
+        payments = await conn.fetch(
+            """
+            SELECT payment_date, payment_time, amount, kind
+            FROM salary_payments
+            WHERE worker_id = $1
+              AND to_char(payment_date, 'YYYY-MM') = $2
+            ORDER BY payment_time
+            """,
+            wid,
+            year_month_str,
+        )
 
-    total_paid = sum(p['amount'] for p in payments) if payments else 0.0
+    # Oddiy maosh va avans alohida hisoblanadi
+    salary_paid = sum(float(p['amount']) for p in payments if (p['kind'] or 'salary') == 'salary')
+    advance_paid = sum(float(p['amount']) for p in payments if (p['kind'] or 'salary') == 'advance')
+    total_paid = salary_paid + advance_paid
     remaining = (monthly_salary - total_paid) if monthly_salary > 0 else 0.0
 
-    text = f"Hurmatli {full_name},\nTayinlangan maosh: {float(monthly_salary):,.0f} so'm\n"
-    text += f"Bugungi kunga qadar olingan: {float(total_paid):,.0f} so'm\n"
-    text += f"Qolgan: {float(remaining):,.0f} so'm\n\n"
+    text = (
+        f"Hurmatli <b>{html.escape(str(full_name))}</b>,\n\n"
+        f"💼 To'lov turi: {format_pay_status(pay_type, pay_amount, monthly_salary)}\n\n"
+        f"💳 Tayinlangan maosh: <b>{monthly_salary:,.0f}</b> so'm\n"
+        f"💰 Maosh olingan: <b>{salary_paid:,.0f}</b> so'm\n"
+        f"💸 Avans olingan: <b>{advance_paid:,.0f}</b> so'm\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"✅ Jami olingan: <b>{total_paid:,.0f}</b> so'm\n"
+        f"❗ Qolgan: <b>{remaining:,.0f}</b> so'm"
+    )
     if payments:
-        text += "📄 Joriy oy to‘lovlar:"
+        text += "\n\n📄 <b>Joriy oy to'lovlar:</b>"
         for i, p in enumerate(payments, start=1):
             p_datetime = p['payment_time'].astimezone(tashkent_tz)
             p_date_str = p_datetime.strftime("%d.%m.%Y")
             p_time_str = p_datetime.strftime("%H:%M")
-            text += f"\n{i}. {p_date_str} {p_time_str} — {float(p['amount']):,.0f} so‘m"
+            kind_label = format_payment_kind(p['kind'])
+            text += f"\n{i}. {kind_label} — {p_date_str} {p_time_str} — <b>{float(p['amount']):,.0f}</b> so'm"
 
-    await message.reply(text)
+    await message.reply(text, parse_mode="HTML")
 
 async def _admin_contact_display() -> str:
     """Bot ichidan kiritilgan admin aloqasi; kiritilmagan bo'lsa config qiymati."""
