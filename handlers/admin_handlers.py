@@ -1580,53 +1580,73 @@ async def process_payment_amount_combined(message: types.Message, state: FSMCont
 async def process_admin_accept(message: types.Message, state: FSMContext):
     if not await _ensure_superadmin_message(message, state):
         return
-    new_name = message.text.strip()
-    data = await state.get_data()
-    pending_user_id = data.get("pending_user_id")
+    try:
+        new_name = message.text.strip()
+        data = await state.get_data()
+        pending_user_id = data.get("pending_user_id")
 
-    if not pending_user_id:
-        await message.reply("Xatolik yuz berdi.")
-        await state.finish()
-        return
+        if not pending_user_id:
+            await message.reply(
+                "⚠️ Jarayon ma'lumotlari topilmadi (bot qayta ishga tushgan bo'lishi mumkin).\n"
+                "Iltimos, arizani <b>«Qabul qilish»</b> tugmasidan qaytadan boshlang.",
+                parse_mode="HTML",
+            )
+            await state.finish()
+            return
 
-    # Bazadan application topish
-    app = await db.get_application_by_tg_id(pending_user_id)
-    username_val = None
-    # pending_requests xotirada bo'lsa uni olamiz
-    pending_info = pending_requests.get(pending_user_id)
-    
-    if pending_info:
-        username_val = pending_info.get("username")
-    elif app:
-        username_val = app.get("username")
+        # Bazadan application topish
+        app = await db.get_application_by_tg_id(pending_user_id)
+        username_val = None
+        # pending_requests xotirada bo'lsa uni olamiz
+        pending_info = pending_requests.get(pending_user_id)
 
-    # Bu oqimga faqat katta admin (superadmin) kiradi va u istalgan faol filialga
-    # xodim biriktira oladi. Shuning uchun joriy tanlangan filialdan qat'i nazar,
-    # HAR DOIM "qaysi filialga biriktiramiz?" deb so'raymiz (avval bu so'rov joriy
-    # filial avtomatik olingani uchun tushib qolar edi).
-    branch_choices = await db.get_active_branches()
-    if not branch_choices:
-        await message.reply(
-            "Hozircha faol filial yo'q. Avval filial qo'shing yoki faollashtiring, "
-            "so'ngra xodimni qabul qiling."
+        if pending_info:
+            username_val = pending_info.get("username")
+        elif app:
+            username_val = app.get("username")
+
+        # Bu oqimga faqat katta admin (superadmin) kiradi va u istalgan faol filialga
+        # xodim biriktira oladi. Shuning uchun joriy tanlangan filialdan qat'i nazar,
+        # HAR DOIM "qaysi filialga biriktiramiz?" deb so'raymiz.
+        branch_choices = await db.get_active_branches()
+        if not branch_choices:
+            await state.finish()
+            await message.reply(
+                "Hozircha faol filial yo'q. Avval filial qo'shing yoki faollashtiring, "
+                "so'ngra xodimni qabul qiling."
+            )
+            return
+
+        current_branch_id = await db.get_superadmin_selected_branch_id(message.from_user.id)
+        await state.update_data(
+            pending_final_name=new_name,
+            pending_username=username_val,
         )
-        return
-
-    current_branch_id = await db.get_superadmin_selected_branch_id(message.from_user.id)
-    await state.update_data(
-        pending_final_name=new_name,
-        pending_username=username_val,
-    )
-    await AdminAcceptPending.waiting_for_branch.set()
-    await message.reply(
-        "Bu xodim qaysi filialga biriktiriladi?\n"
-        "(Joriy filial ✅ bilan belgilangan, lekin istalganini tanlashingiz mumkin.)",
-        reply_markup=build_branch_selection_keyboard(
-            branch_choices,
-            "pending_accept_branch",
-            current_branch_id=current_branch_id,
-        ),
-    )
+        await AdminAcceptPending.waiting_for_branch.set()
+        await message.reply(
+            "Bu xodim qaysi filialga biriktiriladi?\n"
+            "(Joriy filial ✅ bilan belgilangan, lekin istalganini tanlashingiz mumkin.)",
+            reply_markup=build_branch_selection_keyboard(
+                branch_choices,
+                "pending_accept_branch",
+                current_branch_id=current_branch_id,
+            ),
+        )
+    except Exception as exc:
+        logging.exception("process_admin_accept xatosi: %s", exc)
+        try:
+            await state.finish()
+        except Exception:
+            pass
+        try:
+            await message.reply(
+                "❌ Ism saqlashda xatolik yuz berdi:\n"
+                f"<code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:200]}</code>\n\n"
+                "Iltimos, arizani «Qabul qilish» tugmasidan qaytadan boshlang.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith("pending_accept_branch:"), state=AdminAcceptPending.waiting_for_branch)
@@ -1653,15 +1673,31 @@ async def pending_accept_branch(callback_query: types.CallbackQuery, state: FSMC
         await state.finish()
         return await callback_query.answer("Jarayon ma'lumotlari topilmadi.", show_alert=True)
 
-    app = await db.get_application_by_tg_id(pending_user_id)
-    await db.add_user(
-        tg_id=pending_user_id,
-        full_name=final_name,
-        username=username_val,
-        branch_id=branch_id,
-    )
-    if app:
-        await db.update_application_status(app['id'], 'accepted')
+    try:
+        app = await db.get_application_by_tg_id(pending_user_id)
+        await db.add_user(
+            tg_id=pending_user_id,
+            full_name=final_name,
+            username=username_val,
+            branch_id=branch_id,
+        )
+        if app:
+            await db.update_application_status(app['id'], 'accepted')
+    except Exception as exc:
+        logging.exception("pending_accept_branch — xodim qo'shishda xato: %s", exc)
+        try:
+            await state.finish()
+        except Exception:
+            pass
+        try:
+            await callback_query.message.answer(
+                "❌ Xodimni saqlashda xatolik yuz berdi:\n"
+                f"<code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:200]}</code>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+        return await callback_query.answer("Xatolik yuz berdi.", show_alert=True)
 
     await state.update_data(final_name=final_name)
     await AdminAcceptPending.waiting_for_start_time.set()

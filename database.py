@@ -329,11 +329,23 @@ async def get_worker_db_id(tg_id: int) -> Optional[int]:
 
 async def add_user(tg_id: int, full_name: str, username: Optional[str] = None, monthly_salary: float = 0.0,
                    daily_work_hours: float = 0.0, branch_id: Optional[int] = None) -> int:
+    """Yangi xodim qo'shadi. tg_id allaqachon mavjud bo'lsa (qayta qabul,
+    o'chirilgandan keyin qayta qo'shish) — UniqueViolation o'rniga yangilaydi.
+
+    Avval oddiy INSERT edi: bir xil tg_id'li ariza ikkinchi marta qabul qilinsa
+    yoki eski yozuv qolib ketgan bo'lsa, asyncpg xato berib qabul zanjirini
+    'qotirib' qo'yardi.
+    """
     async with pool.acquire() as conn:
         return await conn.fetchval(
             """
-            INSERT INTO workers (tg_id, full_name, username, monthly_salary, daily_work_hours, branch_id)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO workers (tg_id, full_name, username, monthly_salary, daily_work_hours, branch_id, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+            ON CONFLICT (tg_id) DO UPDATE SET
+                full_name = EXCLUDED.full_name,
+                username  = EXCLUDED.username,
+                branch_id = COALESCE(EXCLUDED.branch_id, workers.branch_id),
+                is_active = TRUE
             RETURNING id
             """,
             tg_id,

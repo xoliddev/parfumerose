@@ -522,8 +522,19 @@ async def _execute_wipe(message, *, with_backup: bool) -> None:
     try:
         async with db.pool.acquire() as conn:
             async with conn.transaction():
+                # workers CASCADE — FK bog'liq jadvallar (work_sessions,
+                # salary_payments, ...) avtomatik tushadi.
                 await conn.execute("TRUNCATE TABLE workers RESTART IDENTITY CASCADE")
-                for tbl in ("attendance", "applications", "worker_activity_log", "worker_day_state_v2"):
+                # Mustaqil / qo'shimcha jadvallar (CASCADE tushirmasligi mumkin).
+                for tbl in (
+                    "attendance",
+                    "job_applications",
+                    "salary_history",
+                    "worker_activity_log_v2",
+                    "worker_day_state_v2",
+                    "ai_chat_messages",
+                    "ai_chat_sessions",
+                ):
                     try:
                         await conn.execute(f"TRUNCATE TABLE {tbl} RESTART IDENTITY CASCADE")
                     except Exception:
