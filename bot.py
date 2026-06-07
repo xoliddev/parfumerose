@@ -294,7 +294,7 @@ async def send_daily_backup_job():
     gz_path = sql_path + ".gz"
 
     try:
-        # 1) pg_dump → sql fayl
+        # 1) pg_dump → sql fayl. TIMEOUT: 120 sek (network/DB hang himoyasi).
         proc = await asyncio.create_subprocess_exec(
             "pg_dump",
             "--no-owner",
@@ -306,7 +306,15 @@ async def send_daily_backup_job():
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr_bytes = await proc.communicate()
+        try:
+            _, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            logging.error("Backup: pg_dump 120s'da yakunlanmadi — to'xtatildi.")
+            raise RuntimeError("pg_dump 120 sekund ichida yakunlanmadi (DB ulanish sekin yoki katta).")
         if proc.returncode != 0:
             err = (stderr_bytes or b"").decode("utf-8", errors="replace")[:500]
             logging.error("Backup: pg_dump xatolik (%s): %s", proc.returncode, err)
@@ -472,30 +480,49 @@ async def wipe_data_confirm(message, state):
         )
 
     await state.finish()
+    await _execute_wipe(message, with_backup=True)
 
-    # 1) Avval backup oling (xato bersa ham tozalash davom etadi — admin ogohlantirildi)
-    await message.reply("⏳ <b>1/2</b> Avtomatik backup tayyorlanmoqda...", parse_mode="HTML")
+
+@dp.message_handler(commands=["wipe_now"], state="*")
+async def wipe_now_command(message, state):
+    """Backup'siz darhol tozalash (favqulodda). Hech qanday tasdiqlash so'ramaydi —
+    /wipe_data tasdiqlangach backup qotib qolgan bo'lsa ishlatish uchun.
+    """
+    if message.from_user.id not in SUPERADMINS:
+        return
     try:
-        await send_daily_backup_job()
-    except Exception as exc:
-        logging.exception("Wipe: backup xatosi")
-        await message.reply(
-            f"⚠️ Backup OLINMADI: <code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:200]}</code>\n"
-            "Tozalash baribir davom etmoqda.",
-            parse_mode="HTML",
-        )
+        await state.finish()
+    except Exception:
+        pass
+    await _execute_wipe(message, with_backup=False)
+
+
+async def _execute_wipe(message, *, with_backup: bool) -> None:
+    """Bazani tozalashni amalga oshiradi. backup ixtiyoriy."""
+    # 1) Backup (ixtiyoriy + 150s timeout — qotib qolmasin)
+    if with_backup:
+        await message.reply("⏳ <b>1/2</b> Avtomatik backup tayyorlanmoqda (max 150s)...", parse_mode="HTML")
+        try:
+            await asyncio.wait_for(send_daily_backup_job(), timeout=150)
+        except asyncio.TimeoutError:
+            await message.reply(
+                "⚠️ Backup 150 sekund ichida bitmadi — tashlab yuborildi.\n"
+                "Tozalash baribir davom etmoqda.",
+            )
+        except Exception as exc:
+            logging.exception("Wipe: backup xatosi")
+            await message.reply(
+                f"⚠️ Backup OLINMADI: <code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))[:200]}</code>\n"
+                "Tozalash baribir davom etmoqda.",
+                parse_mode="HTML",
+            )
 
     # 2) Tozalash — TRUNCATE bilan, CASCADE FK'larni ham tushiradi
     await message.reply("⏳ <b>2/2</b> Baza tozalanmoqda...", parse_mode="HTML")
     try:
         async with db.pool.acquire() as conn:
             async with conn.transaction():
-                # workers'ni TRUNCATE qilsak, work_sessions/salary_payments/
-                # worker_day_state_v2/branch_admins ham CASCADE bilan tushadi.
-                # Lekin branch_admins'ni saqlash uchun avval uni tozalamaymiz
-                # (FK tg_id'ga emas, workers.id'ga ham tegmaydi).
                 await conn.execute("TRUNCATE TABLE workers RESTART IDENTITY CASCADE")
-                # Mustaqil jadvallar (FK workers'ga emas)
                 for tbl in ("attendance", "applications", "worker_activity_log", "worker_day_state_v2"):
                     try:
                         await conn.execute(f"TRUNCATE TABLE {tbl} RESTART IDENTITY CASCADE")
@@ -504,8 +531,7 @@ async def wipe_data_confirm(message, state):
         await message.reply(
             "✅ <b>Baza tozalandi.</b>\n\n"
             "O'chirildi: barcha xodimlar, sessiyalar, to'lovlar, davomat, arizalar.\n"
-            "Saqlandi: filiallar, adminlar, bildirishnoma guruhlari, admin aloqasi.\n\n"
-            "Backup faylingiz Telegram'da turibdi — kerak bo'lsa qaytarish mumkin.",
+            "Saqlandi: filiallar, adminlar, bildirishnoma guruhlari, admin aloqasi.",
             parse_mode="HTML",
         )
     except Exception as exc:
