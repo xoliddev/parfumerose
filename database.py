@@ -20,7 +20,6 @@ from config import (
     POSTGRES_PORT,
     POSTGRES_USER,
     SUPERADMINS,
-    WORK_LOG_GROUP_ID,
 )
 
 # Ulanishlar hovuzi (pool) uchun global o'zgaruvchi
@@ -653,15 +652,21 @@ async def get_notification_admin_ids(branch_id: Optional[int] = None) -> List[in
 
 
 async def get_notification_group_id(branch_id: Optional[int] = None) -> int:
-    if branch_id:
-        async with pool.acquire() as conn:
-            group_id = await conn.fetchval(
-                "SELECT COALESCE(work_log_group_id, 0) FROM branches WHERE id = $1",
-                branch_id,
-            )
-        if group_id:
-            return int(group_id)
-    return WORK_LOG_GROUP_ID
+    """Filialning bildirishnoma guruh ID'sini FAQAT bazadan o'qiydi.
+
+    Avval DB bo'sh bo'lsa env (WORK_LOG_GROUP_ID) qiymatiga qaytardi — endi
+    env fallback YO'Q. Guruh faqat bot ichidan («📢 Bildirishnoma guruhi»)
+    sozlanadi va shu yerda saqlanadi. Guruh belgilanmagan bo'lsa 0 qaytadi
+    (notify_admins_and_group 0 bo'lsa guruhga yubormaydi).
+    """
+    if not branch_id:
+        return 0
+    async with pool.acquire() as conn:
+        group_id = await conn.fetchval(
+            "SELECT COALESCE(work_log_group_id, 0) FROM branches WHERE id = $1",
+            branch_id,
+        )
+    return int(group_id or 0)
 
 
 async def set_branch_work_log_group_id(branch_id: int, group_id: int) -> bool:
