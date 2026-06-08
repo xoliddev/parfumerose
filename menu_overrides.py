@@ -15,6 +15,9 @@ def get_admin_main_menu(admin_tg_id: int | None = None) -> types.InlineKeyboardM
         types.InlineKeyboardButton("Maoshlar", callback_data="salary_tree", style="primary"),
     )
     kb.row(
+        types.InlineKeyboardButton("💵 Tezkor to'lov", callback_data="qpay_menu", style="success"),
+    )
+    kb.row(
         types.InlineKeyboardButton("Bot foydalanuvchilari", callback_data="stats_usage", style="primary"),
         types.InlineKeyboardButton("Ish soati vaqtlari", callback_data="work_hours_menu", style="primary"),
     )

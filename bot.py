@@ -554,8 +554,44 @@ async def _execute_wipe(message, *, with_backup: bool) -> None:
         )
 
 
+
+async def send_unpaid_workers_reminder():
+    """Har kuni 08:00 da adminlarga hali to'lanmagan xodimlar ro'yxatini va tezkor to'lov tugmasini yuboradi."""
+    logging.info("Bugun to'lanmagan xodimlar eslatmasini yuborish boshlandi...")
+    from config import ADMINS
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    for admin_tg_id in ADMINS:
+        try:
+            # Check if this admin has active scope
+            branch_ids = await db.get_admin_branch_ids(admin_tg_id)
+            if not branch_ids:
+                continue
+                
+            unpaid_workers = await handlers.admin_handlers._get_unpaid_workers_today(admin_tg_id)
+            if not unpaid_workers:
+                continue
+                
+            text = "💵 *Tezkor to'lov (Bugun to'lanmaganlar)*\n\nBugun quyidagi xodimlarga hali to'lov qilinmagan:\n"
+            for w in unpaid_workers:
+                text += f"• {handlers.admin_handlers._format_worker_branch_label(w)}\n"
+            text += "\nTo'lovlarni amalga oshirish uchun quyidagi tugmani bosing:"
+            
+            kb = InlineKeyboardMarkup(row_width=1)
+            kb.add(InlineKeyboardButton("💵 Tezkor to'lov", callback_data="qpay_menu", style="success"))
+            
+            await bot.send_message(admin_tg_id, text, reply_markup=kb, parse_mode="Markdown")
+        except Exception as e:
+            logging.error(f"Admin {admin_tg_id} ga tezkor to'lov eslatmasini yuborishda xatolik: {e}")
+
+
 def schedule_jobs():
     """Shaxsiy hisobot vazifalarini rejalashtiradi."""
+    # Tezkor to'lov eslatmasi (Dushanba-Shanba, soat 08:00 da)
+    scheduler.add_job(
+        send_unpaid_workers_reminder,
+        trigger=CronTrigger(hour=8, minute=0, day_of_week='mon-sat'),
+    )
     # Ertalabki hisobot (Dushanba-Shanba, soat 08:30 da)
     scheduler.add_job(
         send_morning_briefings,

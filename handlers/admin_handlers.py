@@ -1716,7 +1716,329 @@ async def process_payment_amount_combined(message: types.Message, state: FSMCont
     except Exception as e:
         logging.warning(f"Xodimga xabar yuborishda xatolik: {e}")
 
+    is_quick_pay = data.get("is_quick_pay", False)
+    qpay_page = data.get("qpay_page", 0)
+    qpay_show_all = data.get("qpay_show_all", False)
+
     await state.finish()
+
+    if is_quick_pay:
+        await _send_quick_pay_list(
+            msg_obj=message,
+            admin_tg_id=message.from_user.id,
+            page=qpay_page,
+            show_all=qpay_show_all,
+            success_msg=f"✅ {worker_label} uchun {amount:,.0f} so'm to'lov muvaffaqiyatli amalga oshirildi!"
+        )
+
+
+async def _get_unpaid_workers_today(admin_tg_id: int) -> list[dict]:
+    branch_ids = await db.get_admin_branch_ids(admin_tg_id)
+    if not branch_ids:
+        return []
+    today_tj = datetime.datetime.now(tashkent_tz).date()
+    query = """
+        SELECT w.id, w.full_name, w.branch_id, b.name AS branch_name, 
+               w.pay_amount, w.pay_type, w.tg_id, w.monthly_salary
+        FROM workers w
+        LEFT JOIN branches b ON b.id = w.branch_id
+        WHERE w.is_active = TRUE
+          AND w.branch_id = ANY($1::int[])
+          AND w.id NOT IN (
+              SELECT DISTINCT worker_id
+              FROM salary_payments
+              WHERE (payment_time AT TIME ZONE 'Asia/Tashkent')::date = $2::date
+          )
+        ORDER BY w.full_name ASC, w.id ASC
+    """
+    async with db.pool.acquire() as conn:
+        rows = await conn.fetch(query, branch_ids, today_tj)
+    return [dict(row) for row in rows]
+
+
+async def _get_all_active_workers_for_qpay(admin_tg_id: int) -> list[dict]:
+    branch_ids = await db.get_admin_branch_ids(admin_tg_id)
+    if not branch_ids:
+        return []
+    query = """
+        SELECT w.id, w.full_name, w.branch_id, b.name AS branch_name, 
+               w.pay_amount, w.pay_type, w.tg_id, w.monthly_salary
+        FROM workers w
+        LEFT JOIN branches b ON b.id = w.branch_id
+        WHERE w.is_active = TRUE
+          AND w.branch_id = ANY($1::int[])
+        ORDER BY w.full_name ASC, w.id ASC
+    """
+    async with db.pool.acquire() as conn:
+        rows = await conn.fetch(query, branch_ids)
+    return [dict(row) for row in rows]
+
+
+async def _send_quick_pay_list(
+    msg_obj: types.Message,
+    admin_tg_id: int,
+    page: int = 0,
+    show_all: bool = False,
+    success_msg: str | None = None
+):
+    if show_all:
+        workers = await _get_all_active_workers_for_qpay(admin_tg_id)
+        title = "💵 *Tezkor to'lov (Barcha xodimlar)*"
+    else:
+        workers = await _get_unpaid_workers_today(admin_tg_id)
+        title = "💵 *Tezkor to'lov (Bugun to'lanmaganlar)*"
+
+    if success_msg:
+        text = f"{success_msg}\n\n{title}\n"
+    else:
+        text = f"{title}\n"
+
+    if not workers:
+        if show_all:
+            text += "\nFaol xodimlar topilmadi."
+            kb = InlineKeyboardMarkup(row_width=1)
+            kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
+        else:
+            text += "\n🎉 Bugun barcha xodimlarga to'lov qilingan!"
+            kb = InlineKeyboardMarkup(row_width=1)
+            kb.add(InlineKeyboardButton("👥 Barcha xodimlar", callback_data="qpay:all:0", style="success"))
+            kb.add(InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
+        await safe_edit_text(msg_obj, text, reply_markup=kb, parse_mode="Markdown")
+        return
+
+    text += f"Jami: {len(workers)} ta xodim\n\nTo'lov qilmoqchi bo'lgan xodimni tanlang:"
+    show_all_val = "1" if show_all else "0"
+    
+    unpaid_ids = set()
+    if show_all:
+        unpaid_workers = await _get_unpaid_workers_today(admin_tg_id)
+        unpaid_ids = {w["id"] for w in unpaid_workers}
+
+    all_items = []
+    for w in workers:
+        label = _format_worker_branch_label(w)
+        if show_all:
+            if w["id"] not in unpaid_ids:
+                label = f"✅ {label}"
+            else:
+                label = f"❌ {label}"
+        all_items.append((label, f"qpay:w:{w['id']}:{page}:{show_all_val}"))
+
+    per_page = 10
+    total_workers = len(all_items)
+    total_pages = max(1, (total_workers + per_page - 1) // per_page)
+    page = max(0, min(page, total_pages - 1))
+    start = page * per_page
+    items = all_items[start:start + per_page]
+
+    kb = build_paginated_inline(
+        items=items,
+        page=page,
+        per_page=per_page,
+        page_prefix=f"qpay:{'all' if show_all else 'unpaid'}",
+        back_cb="back_admin_main",
+        total_items=total_workers,
+        page_separator=":"
+    )
+    
+    if show_all:
+        kb.row(InlineKeyboardButton("💵 Faqat to'lanmaganlar", callback_data="qpay:unpaid:0", style="success"))
+    else:
+        kb.row(InlineKeyboardButton("👥 Barcha faol xodimlar", callback_data="qpay:all:0", style="success"))
+        
+    await safe_edit_text(msg_obj, text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def _send_qpay_worker_details(
+    msg_obj: types.Message,
+    worker_id: int,
+    page: int,
+    show_all: bool,
+    state: FSMContext
+):
+    async with db.pool.acquire() as conn:
+        worker = await conn.fetchrow(
+            "SELECT w.id, w.full_name, w.pay_amount, w.pay_type, w.monthly_salary, b.name AS branch_name, w.tg_id "
+            "FROM workers w "
+            "LEFT JOIN branches b ON b.id = w.branch_id "
+            "WHERE w.id = $1",
+            worker_id
+        )
+        if not worker:
+            return await msg_obj.edit_text("❌ Xodim topilmadi.")
+        
+        now = datetime.datetime.now(tashkent_tz)
+        year = str(now.year)
+        month = f"{now.month:02d}"
+        oy = f"{year}-{month}"
+        
+        total_paid_record = await conn.fetchval(
+            "SELECT SUM(amount) FROM salary_payments WHERE worker_id = $1 AND to_char(payment_date, 'YYYY-MM') = $2",
+            worker_id, oy
+        )
+        total_paid = float(total_paid_record or 0.0)
+        
+    full_name = html.escape(worker['full_name'] or "Noma'lum xodim")
+    branch_name = html.escape(worker['branch_name'] or "")
+    monthly_salary = float(worker['monthly_salary'] or 0.0)
+    pay_type = worker['pay_type']
+    pay_amount = float(worker['pay_amount'] or 0.0)
+    
+    remaining = (monthly_salary - total_paid) if monthly_salary > 0 else 0.0
+    
+    text = f"👤 *Xodim*: {full_name}\n"
+    if branch_name:
+        text += f"🏢 Filial: {branch_name}\n"
+    if monthly_salary > 0:
+        text += f"💳 Oylik maosh: {monthly_salary:,.0f} so'm\n"
+    if pay_type == "daily" and pay_amount > 0:
+        text += f"💵 Kunlik haq: {pay_amount:,.0f} so'm\n"
+    text += f"✅ Shu oy to'langan: {total_paid:,.0f} so'm\n"
+    if remaining > 0:
+        text += f"❗️ Qolgan: {remaining:,.0f} so'm\n"
+    text += "\nTo'lov miqdorini kiritishingiz (faqat son yozib yuboring) yoki quyidagi tezkor tugmalardan birini tanlashingiz mumkin:"
+    
+    kb = InlineKeyboardMarkup(row_width=3)
+    show_all_val = "1" if show_all else "0"
+    
+    quick_amts = [50000, 100000, 200000, 500000, 1000000]
+    for amt in quick_amts:
+        kb.insert(InlineKeyboardButton(f"{amt:,.0f}", callback_data=f"qpay:pay:{worker_id}:{amt}:{page}:{show_all_val}", style="success"))
+        
+    if pay_type == "daily" and pay_amount > 0:
+        kb.row(InlineKeyboardButton(f"💵 Kunlik haq ({pay_amount:,.0f})", callback_data=f"qpay:pay:{worker_id}:{pay_amount}:{page}:{show_all_val}", style="success"))
+        
+    if remaining > 0:
+        kb.row(InlineKeyboardButton(f"💳 Qolgan maosh ({remaining:,.0f})", callback_data=f"qpay:pay:{worker_id}:{remaining}:{page}:{show_all_val}", style="success"))
+        
+    back_data = f"qpay:{'all' if show_all else 'unpaid'}:{page}"
+    kb.row(InlineKeyboardButton("⬅️ Orqaga", callback_data=back_data, style="primary"))
+    
+    await AdminAddSalaryPayment.waiting_for_payment_amount.set()
+    await state.update_data(
+        payment_worker_id=worker_id,
+        payment_year=year,
+        payment_month=month,
+        is_quick_pay=True,
+        qpay_page=page,
+        qpay_show_all=show_all
+    )
+    
+    await safe_edit_text(msg_obj, text, reply_markup=kb, parse_mode="Markdown")
+
+
+@dp.callback_query_handler(lambda c: c.data == "qpay_menu", state="*")
+async def handle_qpay_menu(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    if not await _ensure_admin_operating_scope_callback(callback_query):
+        return
+    await state.finish()
+    await _send_quick_pay_list(callback_query.message, callback_query.from_user.id, page=0, show_all=False)
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("qpay:unpaid:") or c.data.startswith("qpay:all:"), state="*")
+async def handle_qpay_list_nav(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    await state.finish()
+    parts = callback_query.data.split(":")
+    show_all = parts[1] == "all"
+    page = int(parts[2])
+    await _send_quick_pay_list(callback_query.message, callback_query.from_user.id, page=page, show_all=show_all)
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("qpay:w:"), state="*")
+async def handle_qpay_worker_select(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    parts = callback_query.data.split(":")
+    worker_id = int(parts[2])
+    page = int(parts[3])
+    show_all = parts[4] == "1"
+    if not await db.admin_can_access_worker(callback_query.from_user.id, worker_id):
+        return await callback_query.answer("Bu xodim sizning filialingizga tegishli emas.", show_alert=True)
+    await _send_qpay_worker_details(callback_query.message, worker_id, page, show_all, state)
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("qpay:pay:"), state="*")
+async def handle_qpay_pay_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+        
+    parts = callback_query.data.split(":")
+    worker_id = int(parts[2])
+    amount = float(parts[3])
+    page = int(parts[4])
+    show_all = parts[5] == "1"
+    
+    if not await db.admin_can_access_worker(callback_query.from_user.id, worker_id):
+        return await callback_query.answer("Bu xodim sizning filialingizga tegishli emas.", show_alert=True)
+        
+    now = datetime.datetime.now(tashkent_tz)
+    year = str(now.year)
+    month = f"{now.month:02d}"
+    oy = f"{year}-{month}"
+    payment_date = datetime.date(now.year, now.month, 1)
+    
+    async with db.pool.acquire() as conn:
+        worker_record = await conn.fetchrow(
+            "SELECT w.full_name, w.monthly_salary, w.tg_id, b.name AS branch_name "
+            "FROM workers w LEFT JOIN branches b ON b.id = w.branch_id "
+            "WHERE w.id = $1",
+            worker_id
+        )
+        if not worker_record:
+            return await callback_query.answer("Xodim topilmadi.", show_alert=True)
+            
+        full_name = worker_record["full_name"]
+        monthly_salary = worker_record["monthly_salary"] or 0.0
+        worker_tg = worker_record["tg_id"]
+        branch_name = worker_record["branch_name"]
+        
+        await conn.execute(
+            "INSERT INTO salary_payments (worker_id, payment_date, amount, kind) VALUES ($1, $2, $3, $4)",
+            worker_id, payment_date, amount, "salary",
+        )
+        
+        sum_payment_record = await conn.fetchval(
+            "SELECT SUM(amount) FROM salary_payments WHERE worker_id = $1 AND to_char(payment_date, 'YYYY-MM') = $2",
+            worker_id, oy,
+        )
+        sum_payment = sum_payment_record or 0.0
+        
+    rem_text = ""
+    if monthly_salary > 0:
+        remaining = monthly_salary - sum_payment
+        rem_text = f"\nQolgan: {float(remaining):,.0f} so'm"
+        
+    try:
+        await bot.send_message(
+            worker_tg,
+            f"🟢 Sizga {datetime.date.today().strftime('%Y-%m-%d')} kuni "
+            f"to'lov sifatida {amount:,.0f} so'm to'lov tushdi.\n"
+            f"Jami shu oyda: {float(sum_payment):,.0f} so'm." + rem_text,
+        )
+    except Exception as e:
+        logging.warning(f"Xodimga xabar yuborishda xatolik: {e}")
+        
+    await state.finish()
+    
+    worker_label = full_name + (f" [{branch_name}]" if branch_name else "")
+    success_msg = f"✅ {worker_label} uchun {amount:,.0f} so'm to'lov muvaffaqiyatli amalga oshirildi!"
+    
+    await callback_query.answer(f"{worker_label}: {amount:,.0f} so'm to'landi.", show_alert=False)
+    
+    await _send_quick_pay_list(
+        msg_obj=callback_query.message,
+        admin_tg_id=callback_query.from_user.id,
+        page=page,
+        show_all=show_all,
+        success_msg=success_msg
+    )
 
 
 @dp.message_handler(
