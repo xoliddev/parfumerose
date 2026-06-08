@@ -83,8 +83,9 @@ async def disabled_web_admin_callbacks(callback_query: types.CallbackQuery):
     await callback_query.answer("Web bo'limi o'chirilgan.")
 
 
-@dp.message_handler(lambda message: message.from_user.id in ADMINS,
-                    content_types=types.ContentTypes.VOICE, state=None)
+@dp.message_handler(
+    lambda message: message.chat.type == "private" and message.from_user.id in ADMINS,
+    content_types=types.ContentTypes.VOICE, state=None)
 async def handle_admin_voice_message(message: types.Message, state: FSMContext):
     """Adminning ovozli xabarini qabul qilib, matnga o'giradi va qayta ishlaydi."""
 
@@ -4269,8 +4270,12 @@ async def ai_attendance_disambiguation_callback(callback_query: types.CallbackQu
     await callback_query.answer("Saqlandi.")
 
 
-@dp.message_handler(lambda message: message.from_user.id in ADMINS and not message.text.startswith('/'),
-                    content_types=types.ContentTypes.TEXT, state=None)
+@dp.message_handler(
+    lambda message: message.chat.type == "private"
+    and message.from_user.id in ADMINS
+    and message.text
+    and not message.text.startswith('/'),
+    content_types=types.ContentTypes.TEXT, state=None)
 async def admin_natural_language_query(message: types.Message, state: FSMContext):
     await state.finish()
     processing_message = await message.answer("🤔 So'rovingiz tahlil qilinmoqda...")

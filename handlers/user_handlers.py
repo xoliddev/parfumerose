@@ -1384,9 +1384,16 @@ async def execute_forward_to_admin(user_id: int, message_text: str):
 
 
 # Bu yangi handler xodimlardan kelgan har qanday matnni qabul qiladi
-@dp.message_handler(lambda message: message.from_user.id not in ADMINS, content_types=types.ContentTypes.TEXT)
+@dp.message_handler(
+    lambda message: message.chat.type == "private" and message.from_user.id not in ADMINS,
+    content_types=types.ContentTypes.TEXT)
 async def handle_employee_text_message(message: types.Message):
-    """Oddiy xodim yozgan matnni AIga yuborib, kerakli amalni bajaradi."""
+    """Oddiy xodim yozgan matnni AIga yuborib, kerakli amalni bajaradi.
+
+    FAQAT lichkada (private) ishlaydi — bot guruhda admin bo'lgani uchun
+    guruhdagi oddiy xabarlarni ham olardi va ularni AIga yuborib javob
+    qaytarardi. Endi guruh xabarlari e'tiborsiz qoldiriladi.
+    """
     await types.ChatActions.typing()
 
     # ai_helpers dagi yangi funksiyamizni chaqiramiz
