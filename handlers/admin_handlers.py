@@ -1031,16 +1031,17 @@ async def pending_accept(callback_query: types.CallbackQuery, state: FSMContext)
             prompt_lines.append(f"Hozirgi arizadagi ism: {suggested_name}")
             prompt_lines.append("Agar shu to'g'ri bo'lsa, o'shani qayta yuboring yoki tahrirlangan variantini yozing.")
         await callback_query.message.reply("\n".join(prompt_lines))
-        await resolve_admin_action(
-            action_key,
-            callback_query.from_user.id,
-            callback_query.from_user.full_name,
-            "qabul qilish jarayonini boshladi",
-        )
-        await notify_selected_admins(
-            SUPERADMINS,
-            f"🧾 {actor_name} ushbu ariza bo'yicha qabul qilish jarayonini boshladi: {suggested_name or user_id}",
-        )
+        # DEKUPLING: avval bu yerda resolve_admin_action chaqirilardi — u arizani
+        # DARHOL "bajarilgan" deb belgilab BARCHA adminlar nusxasidagi tugmalarni
+        # o'chirardi. Natijada admin jarayonni tashlab ketsa (ism kiritmasa), ariza
+        # butunlay qulflanib qolardi — hech kim qabul qila olmasdi.
+        # Endi START'da faqat SHU admin o'z xabaridagi tugmani yashiradi; boshqa
+        # adminlar tugmasi qoladi. To'liq tozalash QABUL TUGAGANDA bo'ladi
+        # (pending_accept_branch -> resolve_admin_action).
+        try:
+            await callback_query.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
     await callback_query.answer("Ism kiritish oynasi ochildi.")
 
 
@@ -1803,6 +1804,14 @@ async def pending_accept_branch(callback_query: types.CallbackQuery, state: FSMC
         )
         if app:
             await db.update_application_status(app['id'], 'accepted')
+        # Ariza endi HAQIQATAN qabul qilindi — barcha adminlar nusxasidagi
+        # "Qabul/Rad" tugmalarini tozalaymiz (boshqa admin endi bosa olmaydi).
+        await resolve_admin_action(
+            f"join_request:{pending_user_id}",
+            callback_query.from_user.id,
+            callback_query.from_user.full_name,
+            "qabul qildi",
+        )
     except Exception as exc:
         logging.exception("pending_accept_branch — xodim qo'shishda xato: %s", exc)
         try:
