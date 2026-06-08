@@ -61,6 +61,31 @@ def _build_web_removed_keyboard() -> InlineKeyboardMarkup:
     return kb
 
 
+@dp.message_handler(lambda message: message.from_user.id in ADMINS, commands=['start'], state='*')
+async def admin_priority_start(message: types.Message, state: FSMContext):
+    """Admin uchun YUQORI PRIORITETLI /start — istalgan FSM oqimni bekor qiladi.
+
+    MUAMMO (tuzatildi): admin holat-handlerlari (vaqt/ism kiritish va h.k.)
+    universal_start'dan OLDIN ro'yxatga olinadi (admin_handlers birinchi import).
+    Shuning uchun admin qabul/xodim qo'shish oqimi o'rtasida /start bossa, oqim
+    handleri /start'ni MA'LUMOT deb olardi ("Vaqtni HH:MM kiriting") va oqimdan
+    chiqib bo'lmasdi — natijada xodim ikki marta qabul qilinardi.
+
+    Bu handler birinchi turadi (fayl boshida) -> /start har doim oqimni tozalab
+    admin menyusini ochadi. Faqat ADMINS uchun; oddiy foydalanuvchilar
+    universal_start'ga tushadi.
+    """
+    try:
+        await state.finish()
+    except Exception:
+        pass
+    try:
+        await dismiss_reply_keyboard(message.chat.id)
+    except Exception:
+        pass
+    await _render_admin_home(message.from_user.id, chat_id=message.chat.id)
+
+
 @dp.message_handler(lambda message: message.from_user.id in ADMINS, commands=['webapp', 'panel'])
 async def web_removed_command(message: types.Message):
     if not await _ensure_admin_operating_scope_message(message):
