@@ -2052,15 +2052,23 @@ async def get_phone_less_workers_pending_manual(
 async def create_pool():
     """Bot ishga tushganda ma'lumotlar bazasi bilan ulanishlar hovuzini yaratadi."""
     global pool
+    import time as _time
+    t0 = _time.monotonic()
     try:
+        # command_timeout: bitta so'rov 30s'dan oshsa to'xtatiladi (osilib
+        #   qolib boshqa hammani bloklamasin).
+        # min_size=2: kamida 2 ulanish doim ochiq turadi (sovuq-ulanish
+        #   latensiyasini kamaytiradi).
+        common = dict(
+            min_size=2,
+            max_size=10,
+            statement_cache_size=0,        # Supabase/Neon transaction pooler talab qiladi
+            max_inactive_connection_lifetime=300.0,  # ulanishni tezroq yopib qayta ochmaymiz
+            command_timeout=30,
+            timeout=20,                    # ulanish o'rnatish timeout'i
+        )
         if DATABASE_URL:
-            pool = await asyncpg.create_pool(
-                dsn=DATABASE_URL,
-                min_size=1,
-                max_size=10,
-                statement_cache_size=0,  # Neon pooler talab qiladi
-                max_inactive_connection_lifetime=60.0,  # Neon auto-suspend uchun
-            )
+            pool = await asyncpg.create_pool(dsn=DATABASE_URL, **common)
         else:
             pool = await asyncpg.create_pool(
                 user=POSTGRES_USER,
@@ -2068,12 +2076,22 @@ async def create_pool():
                 database=POSTGRES_DB,
                 host=POSTGRES_HOST,
                 port=POSTGRES_PORT,
-                min_size=1,
-                max_size=10,
-                statement_cache_size=0,
-                max_inactive_connection_lifetime=60.0,
+                **common,
             )
-        print("✅ PostgreSQL Connection Pool muvaffaqiyatli yaratildi.")
+        connect_ms = (_time.monotonic() - t0) * 1000
+        # DB latensiyasini O'LCHAYMIZ — log'da aniq ko'rinadi (taxmin emas)
+        q0 = _time.monotonic()
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        query_ms = (_time.monotonic() - q0) * 1000
+        print(f"✅ PostgreSQL pool tayyor. Ulanish: {connect_ms:.0f}ms, test so'rov: {query_ms:.0f}ms")
+        logging.info("DB pool: connect=%.0fms, SELECT1=%.0fms", connect_ms, query_ms)
+        if query_ms > 800:
+            logging.warning(
+                "⚠️ DB SEKIN: SELECT 1 = %.0fms. Bu odatda ulanish satri muammosi "
+                "(Supabase direct/IPv6). Pooler (IPv4, port 6543) satriga o'ting.",
+                query_ms,
+            )
     except Exception as e:
         print(f"❌ PostgreSQL ulanishda xatolik: {e}")
         logging.error("create_pool xatosi: %s", e)
@@ -2091,3 +2109,22 @@ async def ensure_pool() -> bool:
     except Exception as exc:
         logging.error("ensure_pool: pool yaratib bo'lmadi: %s", exc)
     return pool is not None
+
+
+async def db_ping() -> float:
+    """DB'ga 'SELECT 1' yuborib, javob latensiyasini millisekundda qaytaradi.
+
+    Ikki vazifa: (1) ulanishni issiq saqlaydi (Supabase/Neon idle yopib
+    qo'ymasin), (2) log'da DB tezligini doimiy ko'rsatadi. Xato bo'lsa -1.0.
+    """
+    import time as _time
+    if not await ensure_pool():
+        return -1.0
+    t0 = _time.monotonic()
+    try:
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+    except Exception as exc:
+        logging.error("db_ping xatosi: %s", exc)
+        return -1.0
+    return (_time.monotonic() - t0) * 1000

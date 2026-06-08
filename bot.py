@@ -615,10 +615,19 @@ async def _start_health_server():
 
 
 async def _heartbeat_job():
-    """Har 5 daqiqada loglarga 'bot tirik' qatori — Koyeb dashboard'da
-    ko'rsatkich uchun. Worker'da bot crash bo'lmagani aniq bilinadi.
+    """Har 5 daqiqada: bot tirikligini + DB latensiyasini log'ga yozadi.
+
+    DB ping ikki ish qiladi: (1) Supabase/Neon ulanishini issiq saqlaydi
+    (idle yopilmasin -> foydalanuvchi so'rovi sovuq-ulanishga tushmasin),
+    (2) DB tezligini Koyeb log'ida doimiy ko'rsatadi.
     """
-    logging.info("💓 heartbeat — bot tirik va so'rovlarni kutmoqda.")
+    ms = await db.db_ping()
+    if ms < 0:
+        logging.warning("💓 heartbeat — bot tirik, lekin DB javob bermadi (ping xato).")
+    elif ms > 800:
+        logging.warning("💓 heartbeat — bot tirik. ⚠️ DB SEKIN: ping=%.0fms (ulanish satrini tekshiring).", ms)
+    else:
+        logging.info("💓 heartbeat — bot tirik. DB ping=%.0fms.", ms)
 
 
 async def on_startup(dispatcher):
