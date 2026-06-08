@@ -261,42 +261,64 @@ async def show_location_issue_prompt(chat_id: int, menu_message_id: int | None, 
 # =============================  /start  ==========================
 @dp.message_handler(commands=['start'], state="*")
 async def universal_start(message: types.Message, state: FSMContext):
-    await state.finish()
+    try:
+        await state.finish()
+    except Exception:
+        pass
     user_id = message.from_user.id
 
-    if user_id in SUPERADMINS:
-        await db.clear_superadmin_selected_branch(user_id)
-        home_text, home_markup = await build_admin_home_payload(user_id)
-        await message.answer(home_text, reply_markup=home_markup)
-        return
-
-    if user_id in ADMINS:
-        home_text, home_markup = await build_admin_home_payload(user_id)
-        await message.answer(home_text, reply_markup=home_markup)
-        return
-
-    # --- TUZATISH: pool o'rniga db.pool ishlatiladi ---
-    async with db.pool.acquire() as conn:
-        row = await conn.fetchrow("""
-                                  SELECT id, full_name, daily_work_hours, work_start, work_end
-                                  FROM workers
-                                  WHERE tg_id = $1
-                                  """, user_id)
-
-    if not row:
-        kb = types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("Xodim bo'lish", callback_data="request_join", style="primary")
+    # Bot DB'ga ulanmagan bo'lsa (startup'da DB tushgan) — jimgina qotmaymiz,
+    # foydalanuvchiga aniq xabar beramiz va pool'ni tiklashga urinamiz.
+    if not await db.ensure_pool():
+        return await message.answer(
+            "⏳ Bot bazaga ulanmoqda. Iltimos, bir necha soniyadan so'ng /start ni qayta bosing."
         )
-        await message.answer(
-            "Assalomu alaykum, siz xodimlar ro‘yxatida topilmadingiz.\n\n"
-            "Xodim bo‘lishni istasangiz, «Xodim bo‘lish» tugmasini bosing.",
-            reply_markup=kb
-        )
-        return
 
-    await clear_old_employee_reply_keyboard(message.chat.id)
-    await render_employee_menu(message.chat.id, user_id)
-    return
+    try:
+        if user_id in SUPERADMINS:
+            await db.clear_superadmin_selected_branch(user_id)
+            home_text, home_markup = await build_admin_home_payload(user_id)
+            await message.answer(home_text, reply_markup=home_markup)
+            return
+
+        if user_id in ADMINS:
+            home_text, home_markup = await build_admin_home_payload(user_id)
+            await message.answer(home_text, reply_markup=home_markup)
+            return
+
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, full_name, daily_work_hours, work_start, work_end
+                FROM workers
+                WHERE tg_id = $1
+                """,
+                user_id,
+            )
+
+        if not row:
+            kb = types.InlineKeyboardMarkup().add(
+                types.InlineKeyboardButton("Xodim bo'lish", callback_data="request_join", style="primary")
+            )
+            await message.answer(
+                "Assalomu alaykum, siz xodimlar ro‘yxatida topilmadingiz.\n\n"
+                "Xodim bo‘lishni istasangiz, «Xodim bo‘lish» tugmasini bosing.",
+                reply_markup=kb,
+            )
+            return
+
+        await clear_old_employee_reply_keyboard(message.chat.id)
+        await render_employee_menu(message.chat.id, user_id)
+    except Exception as exc:
+        logging.exception("universal_start xatosi: %s", exc)
+        try:
+            await message.answer(
+                "❌ Yuklashda xatolik yuz berdi. Bir oz kutib /start ni qayta bosing.\n"
+                f"<code>{html.escape(type(exc).__name__)}</code>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
 
 

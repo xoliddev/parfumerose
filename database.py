@@ -2076,3 +2076,18 @@ async def create_pool():
         print("✅ PostgreSQL Connection Pool muvaffaqiyatli yaratildi.")
     except Exception as e:
         print(f"❌ PostgreSQL ulanishda xatolik: {e}")
+        logging.error("create_pool xatosi: %s", e)
+
+
+async def ensure_pool() -> bool:
+    """Pool mavjudligini kafolatlaydi. Agar startup'da DB tushgan bo'lib pool
+    None qolgan bo'lsa, qayta yaratishga urinadi. Handler'lar DB amalidan oldin
+    chaqirib, bot DB qaytgach o'zini tiklaydi (qotib qolmaydi).
+    """
+    if pool is not None:
+        return True
+    try:
+        await create_pool()
+    except Exception as exc:
+        logging.error("ensure_pool: pool yaratib bo'lmadi: %s", exc)
+    return pool is not None
