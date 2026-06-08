@@ -2111,6 +2111,63 @@ async def ensure_pool() -> bool:
     return pool is not None
 
 
+_singleton_lock_conn = None
+
+
+async def acquire_singleton_lock(lock_key: int = 918273645, max_wait_s: int = 60) -> bool:
+    """Faqat BITTA instance Telegram polling qilishini ta'minlaydi.
+
+    Muammo: Koyeb deploy paytida (yoki scaling) ikkita instance baravar
+    getUpdates chaqiradi -> Telegram "TerminatedByOtherGetUpdates" beradi,
+    bot sekinlashadi va xabarlar ikki marta qayta ishlanadi.
+
+    Yechim: PostgreSQL session-level advisory lock. Birinchi instance lock'ni
+    oladi va polling qiladi. Ikkinchi instance lock bo'shaguncha (eski instance
+    o'lguncha) KUTADI -> to'qnashuv bo'lmaydi.
+
+    FAIL-SAFE: ulanish/lock xato bersa yoki max_wait_s o'tsa, True qaytaradi
+    (bot baribir ishlaydi — deadlock bo'lmaydi).
+    """
+    global _singleton_lock_conn
+    import asyncio as _asyncio
+    if not DATABASE_URL:
+        return True
+    try:
+        _singleton_lock_conn = await asyncpg.connect(dsn=DATABASE_URL, timeout=15, command_timeout=10)
+    except Exception as exc:
+        logging.error("Singleton lock ulanishi xatosi (e'tiborsiz): %s", exc)
+        return True
+    waited = 0
+    while waited < max_wait_s:
+        try:
+            got = await _singleton_lock_conn.fetchval("SELECT pg_try_advisory_lock($1)", lock_key)
+        except Exception as exc:
+            logging.error("advisory_lock so'rovi xatosi (e'tiborsiz): %s", exc)
+            return True
+        if got:
+            logging.info("✅ Singleton lock olindi — bu YAGONA polling instance.")
+            return True
+        logging.warning("⏳ Boshqa instance hali polling qilyapti — kutyapman (%ds/%ds)...", waited, max_wait_s)
+        await _asyncio.sleep(3)
+        waited += 3
+    logging.warning(
+        "⚠️ Singleton lock %ds ichida olinmadi — boshqa instance hali tirik. "
+        "Koyeb'da instances=1 qilinganini tekshiring! Baribir davom etamiz.",
+        max_wait_s,
+    )
+    return False
+
+
+async def keep_singleton_lock_alive() -> None:
+    """Lock ulanishini tirik saqlaydi (uzilsa lock yo'qolib, dual-instance qaytadi)."""
+    if _singleton_lock_conn is None:
+        return
+    try:
+        await _singleton_lock_conn.fetchval("SELECT 1")
+    except Exception as exc:
+        logging.warning("Singleton lock ulanishi uzildi (lock yo'qolgan bo'lishi mumkin): %s", exc)
+
+
 async def db_ping() -> float:
     """DB'ga 'SELECT 1' yuborib, javob latensiyasini millisekundda qaytaradi.
 

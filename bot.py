@@ -621,6 +621,7 @@ async def _heartbeat_job():
     (idle yopilmasin -> foydalanuvchi so'rovi sovuq-ulanishga tushmasin),
     (2) DB tezligini Koyeb log'ida doimiy ko'rsatadi.
     """
+    await db.keep_singleton_lock_alive()
     ms = await db.db_ping()
     if ms < 0:
         logging.warning("💓 heartbeat — bot tirik, lekin DB javob bermadi (ping xato).")
@@ -655,6 +656,14 @@ async def on_startup(dispatcher):
             await asyncio.sleep(2 * attempt)  # 2s, 4s, 6s
     if last_exc is not None:
         logging.error("DB pool yaratib bo'lmadi — bot baribir polling boshlaydi (handler'lar xato beradi).")
+
+    # 1.5 SINGLETON LOCK — faqat bitta instance polling qilsin.
+    #     (TerminatedByOtherGetUpdates / dual-instance to'qnashuvini oldini oladi.
+    #      Deploy paytida yangi instance eski tugaguncha kutadi.)
+    try:
+        await db.acquire_singleton_lock()
+    except Exception as exc:
+        logging.error("acquire_singleton_lock xatosi (e'tiborsiz): %s", exc)
 
     # 2. Baza jadvallarini yaratamiz yoki tekshiramiz
     try:
