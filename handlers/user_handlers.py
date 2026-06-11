@@ -17,6 +17,7 @@ from config import ADMINS, SUPERADMINS, ALLOWED_LAT, ALLOWED_LON, LATE_EARLY_TOL
 # Endi butun 'database' modulini 'db' nomi bilan chaqiramiz
 import database as db
 from shared import (
+    EMPLOYEE_GUIDE_TEXT,
     build_admin_home_payload,
     build_absence_review_keyboard,
     pending_requests,
@@ -525,6 +526,16 @@ async def employee_menu_callback(callback_query: types.CallbackQuery, state: FSM
             callback_query.message.chat.id,
             callback_query.from_user.id,
             preferred_message_id=callback_query.message.message_id,
+        )
+        return await callback_query.answer()
+
+    if action == "guide":
+        await state.finish()
+        kb = InlineKeyboardMarkup().add(
+            types.InlineKeyboardButton("⬅️ Menyuga qaytish", callback_data="empmenu:home", style="primary")
+        )
+        await callback_query.message.edit_text(
+            EMPLOYEE_GUIDE_TEXT, reply_markup=kb, parse_mode="HTML"
         )
         return await callback_query.answer()
 

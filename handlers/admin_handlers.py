@@ -2376,6 +2376,10 @@ async def process_admin_end_time(message: types.Message, state: FSMContext):
         await message.reply(reply_text)
         try:
             await bot.send_message(pending_user_id, worker_text)
+            # Bot o'zini o'zi tushuntiradi: yangi xodimga darhol qisqa
+            # yo'riqnoma yuboramiz — admin o'rgatib o'tirmasin.
+            from shared import EMPLOYEE_GUIDE_TEXT
+            await bot.send_message(pending_user_id, EMPLOYEE_GUIDE_TEXT, parse_mode="HTML")
         except Exception as e:
             logging.error(f"Xodimga xabar yuborishda xatolik: {e}")
 

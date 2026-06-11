@@ -340,6 +340,31 @@ async def dismiss_reply_keyboard(chat_id: int) -> None:
         pass
 
 
+# Xodim uchun qo'llanma — sodda tilda, qadam-baqadam. Ikki joyda ishlatiladi:
+# (1) xodim menyusidagi «📖 Qo'llanma» tugmasi, (2) yangi xodim qabul
+# qilinganda bot O'ZI yuboradigan birinchi yo'riqnoma.
+EMPLOYEE_GUIDE_TEXT = (
+    "📖 <b>BOTDAN QANDAY FOYDALANAMAN?</b>\n\n"
+    "🟢 <b>Ishga kelganingizda:</b>\n"
+    "1. «🟢 Ishga keldim» tugmasini bosing\n"
+    "2. 📎 (skrepka) belgisini bosing\n"
+    "3. <b>Location</b> ni tanlang\n"
+    "4. <b>«Share My Live Location»</b> ni bosing (oddiy emas, JONLI!)\n"
+    "5. 15 daqiqa qilib yuboring — tamom ✅\n\n"
+    "🔴 <b>Ketayotganingizda:</b> «🔴 Ketyapman» → yana jonli lokatsiya.\n\n"
+    "🌙 <b>Dam:</b> bugun dam olsangiz — shu tugmani bosing, admin biladi.\n\n"
+    "🟠 <b>O'qishga ketdim:</b> o'qishga ketayotganda bosing, "
+    "qaytganda «O'qishdan qaytdim»ni bosing.\n\n"
+    "💰 <b>Maoshim:</b> maoshingiz va olgan pullaringizni ko'rasiz.\n\n"
+    "📊 <b>Statistika:</b> qaysi kunlari necha soat ishlaganingiz.\n\n"
+    "🆘 <b>Yordam:</b> muammo bo'lsa — shu yerdan adminga yozasiz.\n\n"
+    "❗ <b>Muhim:</b>\n"
+    "• Lokatsiya faqat ish joyida turib yuborilsa qabul qilinadi\n"
+    "• Kechiksangiz — bot sabab so'raydi, yozib yuboring\n"
+    "• Kelmasangiz — bot o'zi yozadi, sababingizni yozing, admin ko'radi"
+)
+
+
 PAY_TYPE_LABELS = {
     "daily": ("🌞", "Kunlik", "kun"),
     "weekly": ("📅", "Haftalik", "hafta"),

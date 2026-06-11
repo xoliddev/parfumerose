@@ -20,5 +20,8 @@ def get_employee_main_menu(is_working: bool = False, study_active: bool = False)
         InlineKeyboardButton("📊 Statistika", callback_data="empmenu:mystats", style="primary"),
         InlineKeyboardButton("🆘 Yordam", callback_data="empmenu:help", style="primary"),
     )
-    kb.row(InlineKeyboardButton("🔄 Yangilash", callback_data="empmenu:home", style="primary"))
+    kb.row(
+        InlineKeyboardButton("📖 Qo'llanma", callback_data="empmenu:guide", style="primary"),
+        InlineKeyboardButton("🔄 Yangilash", callback_data="empmenu:home", style="primary"),
+    )
     return kb

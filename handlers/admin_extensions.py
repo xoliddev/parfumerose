@@ -130,6 +130,15 @@ async def _finish_admin_add_worker(message: types.Message, state: FSMContext):
             logging.error("Menyu yasashda xato: %s", menu_exc)
 
         await message.reply(summary, reply_markup=reply_markup)
+
+        # Telegram'i ulangan xodimga bot O'ZI yo'riqnoma yuboradi
+        # (xodim botga /start bosgan bo'lsa yetib boradi; aks holda jim).
+        if tg_id:
+            try:
+                from shared import EMPLOYEE_GUIDE_TEXT
+                await message.bot.send_message(tg_id, EMPLOYEE_GUIDE_TEXT, parse_mode="HTML")
+            except Exception:
+                pass
     except Exception as exc:
         logging.exception("Xodim qo'shishda xatolik: %s", exc)
         try:
