@@ -359,7 +359,8 @@ async def request_join_name(message: types.Message, state: FSMContext):
     )
     sent_messages = await notify_selected_admins(
         SUPERADMINS,
-        f"🆕 Ariza:\nID: {u.id}\nIsm: {html.escape(full_name)}\nUsername: {('@' + u.username) if u.username else '—'}",
+        f"🆕 <b>Yangi ariza</b>\n\n👤 Ism: <b>{html.escape(full_name)}</b>\n📱 Username: {('@' + u.username) if u.username else '—'}\n\n"
+        f"Pastdagi tugma orqali qabul qiling yoki rad eting.",
         reply_markup=kb
     )
     await register_admin_action_messages(action_key, sent_messages)
@@ -1234,8 +1235,9 @@ async def process_help_feedback(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user_name = message.from_user.full_name
     to_admins = (
-        f"🆘 <b>[YORDAM]</b> Foydalanuvchi: {html.escape(user_name) if user_name else '—'} (ID: {user_id})\n"
-        f"Muammo/taklif:\n<i>«{html.escape(feedback_text)}»</i>"
+        f"🆘 <b>Yordam so'rovi</b>\n\n"
+        f"👤 Kimdan: <b>{html.escape(user_name) if user_name else '—'}</b>\n"
+        f"📝 Xabar: <i>«{html.escape(feedback_text)}»</i>"
     )
     worker_record = await db.get_worker_by_tg_id(user_id)
     worker_id = worker_record.get("id") if worker_record else None
@@ -1398,9 +1400,9 @@ async def execute_forward_to_admin(user_id: int, message_text: str):
         )
 
     admin_message = (
-        "✉️ <b>Xodim kela olmasligi sababini yozdi:</b>\n\n"
-        f"<b>Xodim:</b> {html.escape(worker_name)} (TG ID: {user_id})\n"
-        f"<b>Sabab:</b> <i>«{html.escape(message_text)}»</i>"
+        "✉️ <b>Kela olmaslik sababi</b>\n\n"
+        f"👤 Xodim: <b>{html.escape(worker_name)}</b>\n"
+        f"📝 Sabab: <i>«{html.escape(message_text)}»</i>"
     )
     await notify_admins_and_group(admin_message, worker_id=worker_db_id)
 

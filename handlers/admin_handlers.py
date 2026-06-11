@@ -420,6 +420,100 @@ async def _admin_contact_text() -> str:
     )
 
 
+# ===== 📖 Bot ichidagi QO'LLANMA (sodda til, mijoz o'zi o'rganishi uchun) =====
+
+def _guide_menu_keyboard() -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("👮 Men admin — nima qila olaman?", callback_data="guide:admin", style="primary"),
+        types.InlineKeyboardButton("👷 Xodim botni qanday ishlatadi?", callback_data="guide:employee", style="primary"),
+        types.InlineKeyboardButton("❓ Tez-tez so'raladigan savollar", callback_data="guide:faq", style="primary"),
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"),
+    )
+    return kb
+
+
+def _guide_back_keyboard() -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("⬅️ Qo'llanma menyusi", callback_data="guide:menu", style="primary"))
+    return kb
+
+
+_GUIDE_HOME = (
+    "📖 <b>QO'LLANMA</b>\n\n"
+    "Bu bo'limda botning hamma imkoniyatlari <b>oddiy tilda</b>, misollar bilan tushuntirilgan. "
+    "Pastdan kerakli bo'limni tanlang."
+)
+
+_GUIDE_ADMIN = (
+    "👮 <b>ADMIN NIMA QILA OLADI?</b>\n\n"
+    "👥 <b>Xodimlar</b> — barcha xodimlar ro'yxati. Birini bossangiz: ko'rish, "
+    "tahrirlash, o'chirish, filial o'zgartirish.\n\n"
+    "➕ <b>Xodim qo'shish</b> — yangi xodimni qo'lda qo'shasiz: ism → filial → "
+    "to'lov turi (kunlik/haftalik/oylik) → ish vaqti.\n\n"
+    "✅ <b>Davomat</b> — xodimni qo'lda «keldi/ketdi» qilib belgilash "
+    "(masalan telefonsiz xodim uchun).\n\n"
+    "💰 <b>Maoshlar</b> — xodimga <b>maosh</b> yoki <b>avans</b> to'lov qo'shasiz, "
+    "tarixini ko'rasiz.\n\n"
+    "📊 <b>Kunlik / Oylik hisobot</b> — kim qachon kelgan-ketgan, necha soat ishlagan.\n\n"
+    "📞 <b>Admin aloqasi</b> — xodimlar «Yordam»da ko'radigan manzilingiz.\n\n"
+    "📢 <b>Bildirishnoma guruhi</b> — kelish/ketish xabarlari boradigan Telegram guruh.\n\n"
+    "💡 <b>Misol:</b> Yangi odam ishga kirmoqchi → u botga /start bosib «Xodim bo'lish»ni "
+    "tanlaydi → sizga <b>ariza</b> keladi → «Qabul qilish» bosasiz → ism, filial, ish vaqtini "
+    "kiritasiz → tamom."
+)
+
+_GUIDE_EMPLOYEE = (
+    "👷 <b>XODIM BOTNI QANDAY ISHLATADI?</b>\n\n"
+    "🟢 <b>Ishga keldim</b> — tugmani bosib <b>JONLI lokatsiya</b> yuboradi "
+    "(📎 → Location → «Share Live Location»). Do'kon yonida bo'lsa qabul qilinadi.\n\n"
+    "🔴 <b>Ishdan ketdim</b> — xuddi shunday, jonli lokatsiya bilan.\n\n"
+    "🌙 <b>Dam</b> — bugun dam olayotganini bildiradi.\n\n"
+    "🎓 <b>O'qishga ketdim</b> — o'qishga ketganini bildiradi.\n\n"
+    "💰 <b>Maoshim</b> — o'z maoshi va olgan to'lovlarini ko'radi.\n\n"
+    "🆘 <b>Yordam</b> — siz (admin) bilan bog'lanish.\n\n"
+    "💡 Agar xodim <b>kechiksa</b> yoki <b>kelmasa</b>, bot undan sababini so'raydi → "
+    "sabab sizga va guruhga keladi."
+)
+
+_GUIDE_FAQ = (
+    "❓ <b>TEZ-TEZ SO'RALADIGAN SAVOLLAR</b>\n\n"
+    "❔ <b>Xodim «keldim» bosdi, lekin lokatsiya qabul bo'lmadi?</b>\n"
+    "→ Do'kondan uzoqda yoki <b>oddiy</b> lokatsiya yuborgan. <b>Jonli</b> lokatsiya kerak.\n\n"
+    "❔ <b>Telefoni yo'q xodimni qanday belgilayman?</b>\n"
+    "→ «✅ Davomat» → xodimni tanlab «keldi/ketdi».\n\n"
+    "❔ <b>Xodimga avans bersam?</b>\n"
+    "→ «💰 Maoshlar» → xodim → «➕ To'lov» → «💸 Avans».\n\n"
+    "❔ <b>Xodim boshqa filialga o'tdi?</b>\n"
+    "→ «👥 Xodimlar» → xodim → «🏢 Filialni o'zgartirish» (katta admin).\n\n"
+    "❔ <b>Filial joyini (lokatsiyasini) o'zgartirsam?</b>\n"
+    "→ /filial_joylashuv buyrug'ini yozing → filialni tanlab yangi joyni yuboring.\n\n"
+    "❔ <b>Bildirishnoma guruhini ulasam?</b>\n"
+    "→ «📢 Bildirishnoma guruhi» → «➕ Kiritish» → guruh ID'sini yuboring.\n\n"
+    "❔ <b>Boshqa savol bo'lsa?</b>\n"
+    "→ Botni o'rnatgan dasturchi bilan bog'laning."
+)
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("guide:"), state="*")
+async def guide_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    section = callback_query.data.split(":", 1)[1]
+    if section == "menu":
+        text, kb = _GUIDE_HOME, _guide_menu_keyboard()
+    elif section == "admin":
+        text, kb = _GUIDE_ADMIN, _guide_back_keyboard()
+    elif section == "employee":
+        text, kb = _GUIDE_EMPLOYEE, _guide_back_keyboard()
+    elif section == "faq":
+        text, kb = _GUIDE_FAQ, _guide_back_keyboard()
+    else:
+        text, kb = _GUIDE_HOME, _guide_menu_keyboard()
+    await safe_edit_text(callback_query.message, text, reply_markup=kb, parse_mode="HTML")
+    await callback_query.answer()
+
+
 @dp.callback_query_handler(lambda c: c.data == "admin_contact:menu", state="*")
 async def admin_contact_menu(callback_query: types.CallbackQuery, state: FSMContext):
     if callback_query.from_user.id not in ADMINS:
@@ -2525,7 +2619,6 @@ async def view_worker(callback_query: types.CallbackQuery):
     monthly_salary = float(worker['monthly_salary'] or 0.0)
     pay_type = worker['pay_type'] or 'monthly'
     pay_amount = float(worker['pay_amount'] or monthly_salary or 0.0)
-    phone_status = "Telefoni bor" if worker['tg_id'] else "Telefoni yo'q"
     daily_hrs = float(worker['daily_work_hours'] or 0.0)
     # --- TUZATISH SHU YERDA: .strftime() olib tashlandi ---
     w_start = worker['work_start'] or 'Belgilanmagan'
@@ -2535,10 +2628,8 @@ async def view_worker(callback_query: types.CallbackQuery):
     text = (
         f"👤 <b>{html.escape(str(worker['full_name']))}</b>\n\n"
         f"🏢 Filial: {html.escape(str(worker['branch_name'] or 'Belgilanmagan'))}\n"
-        f"🆔 TG ID: {worker['tg_id'] or 'yoq'}\n"
-        f"📛 Username: {('@' + worker['username']) if worker['username'] else 'Yoq'}\n\n"
+        f"📱 Telegram: {('@' + worker['username']) if worker['username'] else ('ulangan' if worker['tg_id'] else 'telefonsiz')}\n\n"
         f"💼 {format_pay_status(pay_type, pay_amount, monthly_salary)}\n\n"
-        f"📞 Aloqa holati: {phone_status}\n"
         f"🕒 Kunlik ish soati: {daily_hrs if daily_hrs > 0 else 'Belgilanmagan'} soat\n"
         f"⏰ Ish vaqti: {w_start} - {w_end}\n"
         f"📅 Qo'shilgan sana: {added_date}"
