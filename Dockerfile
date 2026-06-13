@@ -9,9 +9,21 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# 2. FFmpeg + postgresql-client o'rnatish (audio convert uchun + kunlik backup uchun pg_dump)
+# 2. FFmpeg + PostgreSQL 18 client o'rnatish
+#    Debian repo'sida pg_dump 17 bor; Neon serveri PG 18 bo'lgani uchun
+#    pg_dump versiya nomuvofiqligi (server 18 vs client 17) ataylab to'xtatadi.
+#    PGDG (postgresql.org rasmiy apt) repozitoriyasidan v18 olamiz.
 RUN apt-get update && \
-    apt-get install -y ffmpeg postgresql-client && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg ffmpeg && \
+    . /etc/os-release && \
+    install -d /usr/share/postgresql-common/pgdg && \
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc && \
+    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends postgresql-client-18 && \
     rm -rf /var/lib/apt/lists/*
 
 # 3. Loyiha kodlarini nusxalash
