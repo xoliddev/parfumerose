@@ -650,23 +650,6 @@ async def _start_health_server():
     logging.info("✅ Health-server ishga tushdi: 0.0.0.0:%s (Koyeb uxlatmasligi uchun)", port)
 
 
-async def _heartbeat_job():
-    """Har 5 daqiqada: bot tirikligini + DB latensiyasini log'ga yozadi.
-
-    DB ping ikki ish qiladi: (1) Supabase/Neon ulanishini issiq saqlaydi
-    (idle yopilmasin -> foydalanuvchi so'rovi sovuq-ulanishga tushmasin),
-    (2) DB tezligini Koyeb log'ida doimiy ko'rsatadi.
-    """
-    await db.keep_singleton_lock_alive()
-    ms = await db.db_ping()
-    if ms < 0:
-        logging.warning("💓 heartbeat — bot tirik, lekin DB javob bermadi (ping xato).")
-    elif ms > 800:
-        logging.warning("💓 heartbeat — bot tirik. ⚠️ DB SEKIN: ping=%.0fms (ulanish satrini tekshiring).", ms)
-    else:
-        logging.info("💓 heartbeat — bot tirik. DB ping=%.0fms.", ms)
-
-
 async def on_startup(dispatcher):
     """Bot ishga tushganda bajariladigan amallar."""
     print("Bot ishga tushmoqda...")
@@ -693,14 +676,6 @@ async def on_startup(dispatcher):
     if last_exc is not None:
         logging.error("DB pool yaratib bo'lmadi — bot baribir polling boshlaydi (handler'lar xato beradi).")
 
-    # 1.5 SINGLETON LOCK — faqat bitta instance polling qilsin.
-    #     (TerminatedByOtherGetUpdates / dual-instance to'qnashuvini oldini oladi.
-    #      Deploy paytida yangi instance eski tugaguncha kutadi.)
-    try:
-        await db.acquire_singleton_lock()
-    except Exception as exc:
-        logging.error("acquire_singleton_lock xatosi (e'tiborsiz): %s", exc)
-
     # 2. Baza jadvallarini yaratamiz yoki tekshiramiz
     try:
         await db.init_db()
@@ -710,10 +685,7 @@ async def on_startup(dispatcher):
     # 3. Rejalashtirilgan vazifalarni qo'shamiz
     schedule_jobs()
 
-    # 4. Heartbeat — har 5 daqiqada (Koyeb log'da bot tirik ekanini ko'rish uchun)
-    scheduler.add_job(_heartbeat_job, trigger=CronTrigger(minute="*/5"))
-
-    # 5. Scheduler'ni ishga tushiramiz
+    # 4. Scheduler'ni ishga tushiramiz
     scheduler.start()
 
     print("Bot ishga tushdi. So'rovlarni kutmoqda...")
