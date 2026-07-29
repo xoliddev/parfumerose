@@ -404,6 +404,33 @@ def _build_admin_contact_keyboard(has_contact: bool) -> types.InlineKeyboardMark
     return kb
 
 
+def _build_settings_keyboard() -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("📍 Manzillar", callback_data="branchloc:menu", style="primary"),
+        types.InlineKeyboardButton("📞 Admin aloqasi", callback_data="admin_contact:menu", style="primary"),
+        types.InlineKeyboardButton("📢 Bildirishnoma guruhi", callback_data="workgroup:menu", style="primary"),
+        types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"),
+    )
+    return kb
+
+
+@dp.callback_query_handler(lambda c: c.data == "settings:menu", state="*")
+async def settings_menu(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    if not await _ensure_admin_operating_scope_callback(callback_query, state):
+        return
+    await state.finish()
+    await safe_edit_text(
+        callback_query.message,
+        "⚙️ <b>Sozlamalar</b>\n\nKerakli bo'limni tanlang.",
+        reply_markup=_build_settings_keyboard(),
+        parse_mode="HTML",
+    )
+    await callback_query.answer()
+
+
 async def _admin_contact_text() -> str:
     contact = await db.get_admin_contact()
     if contact:
@@ -583,42 +610,98 @@ async def admin_contact_delete(callback_query: types.CallbackQuery, state: FSMCo
     await callback_query.answer("O'chirildi.")
 
 
-# ===== Filial joylashuvi (lat/lon) — botdan o'zgartirish (faqat katta admin) =====
+# ===== Filial joylashuvi (lat/lon) — botdan o'zgartirish =====
 #
 # Koordinata DB'da saqlanadi va restart'da yo'qolmaydi (init_db endi mavjud
 # qiymatni saqlaydi). Lokatsiya yuborish yoki "lat, lon" yozish mumkin.
 
-@dp.message_handler(commands=["filial_joylashuv", "branch_location"], state="*")
-async def branch_location_start(message: types.Message, state: FSMContext):
-    if message.from_user.id not in SUPERADMINS:
-        return
-    await state.finish()
-    branches = await db.get_active_branches()
-    if not branches:
-        return await message.reply("Faol filial yo'q.")
+async def _get_branch_location_options(admin_tg_id: int) -> list[dict]:
+    if admin_tg_id in SUPERADMINS:
+        return await db.get_active_branches()
+    return await db.list_branches_for_admin(admin_tg_id)
+
+
+async def _admin_can_update_branch_location(admin_tg_id: int, branch_id: int) -> bool:
+    if admin_tg_id in SUPERADMINS:
+        return True
+    branch_ids = await db.get_admin_branch_ids(admin_tg_id)
+    return int(branch_id) in {int(item) for item in branch_ids}
+
+
+def _build_branch_location_keyboard(branches: list[dict], back_callback: str) -> types.InlineKeyboardMarkup:
     kb = types.InlineKeyboardMarkup(row_width=1)
-    for b in branches:
+    for branch in branches:
         kb.add(types.InlineKeyboardButton(
-            f"🏢 {b['name']}  ({float(b['latitude']):.5f}, {float(b['longitude']):.5f})",
-            callback_data=f"setbranchloc:{b['id']}",
+            f"🏢 {branch['name']}  ({float(branch['latitude']):.5f}, {float(branch['longitude']):.5f})",
+            callback_data=f"setbranchloc:{branch['id']}",
             style="primary",
         ))
-    await message.reply(
-        "📍 <b>Filial joylashuvini o'zgartirish</b>\n\n"
-        "Qaysi filialning koordinatasini yangilaymiz?",
-        reply_markup=kb,
-        parse_mode="HTML",
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data=back_callback, style="primary"))
+    return kb
+
+
+async def _render_branch_location_menu(
+    admin_tg_id: int,
+    *,
+    message_obj: types.Message | None = None,
+    chat_id: int | None = None,
+    back_callback: str = "settings:menu",
+):
+    branches = await _get_branch_location_options(admin_tg_id)
+    text = (
+        "📍 <b>Manzillar</b>\n\n"
+        "Qaysi filial joylashuvini yangilaymiz?\n\n"
+        "Do'kon oldida turgan holda filialni tanlang, keyin Telegram lokatsiyasini yuboring. "
+        "Bot latitude/longitude ni avtomatik saqlaydi."
     )
+    if not branches:
+        text = "Faol filial topilmadi yoki sizga filial biriktirilmagan."
+    kb = _build_branch_location_keyboard(branches, back_callback)
+    if message_obj is not None:
+        return await safe_edit_text(message_obj, text, reply_markup=kb, parse_mode="HTML")
+    if chat_id is not None:
+        return await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+
+
+@dp.message_handler(commands=["filial_joylashuv", "branch_location"], state="*")
+async def branch_location_start(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMINS:
+        return
+    if not await _ensure_admin_operating_scope_message(message, state):
+        return
+    await state.finish()
+    await _render_branch_location_menu(
+        message.from_user.id,
+        chat_id=message.chat.id,
+        back_callback="back_admin_main",
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data == "branchloc:menu", state="*")
+async def branch_location_menu(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    if not await _ensure_admin_operating_scope_callback(callback_query, state):
+        return
+    await state.finish()
+    await _render_branch_location_menu(
+        callback_query.from_user.id,
+        message_obj=callback_query.message,
+        back_callback="settings:menu",
+    )
+    await callback_query.answer()
 
 
 @dp.callback_query_handler(lambda c: c.data.startswith("setbranchloc:"), state="*")
 async def branch_location_pick(callback_query: types.CallbackQuery, state: FSMContext):
-    if callback_query.from_user.id not in SUPERADMINS:
-        return await callback_query.answer("Faqat katta admin uchun.", show_alert=True)
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
     try:
         branch_id = int(callback_query.data.split(":")[1])
     except (ValueError, IndexError):
         return await callback_query.answer("Noto'g'ri filial.", show_alert=True)
+    if not await _admin_can_update_branch_location(callback_query.from_user.id, branch_id):
+        return await callback_query.answer("Bu filial sizga tegishli emas.", show_alert=True)
     branch = await db.get_branch_by_id(branch_id)
     if not branch:
         return await callback_query.answer("Filial topilmadi.", show_alert=True)
@@ -643,7 +726,7 @@ async def branch_location_cancel(message: types.Message, state: FSMContext):
 
 @dp.message_handler(state=SetBranchLocation.waiting_for_location, content_types=types.ContentTypes.LOCATION)
 async def branch_location_from_geo(message: types.Message, state: FSMContext):
-    if message.from_user.id not in SUPERADMINS:
+    if message.from_user.id not in ADMINS:
         await state.finish()
         return
     loc = message.location
@@ -652,7 +735,7 @@ async def branch_location_from_geo(message: types.Message, state: FSMContext):
 
 @dp.message_handler(state=SetBranchLocation.waiting_for_location, content_types=types.ContentTypes.TEXT)
 async def branch_location_from_text(message: types.Message, state: FSMContext):
-    if message.from_user.id not in SUPERADMINS:
+    if message.from_user.id not in ADMINS:
         await state.finish()
         return
     txt = (message.text or "").strip()

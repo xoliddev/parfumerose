@@ -30,6 +30,9 @@ def get_admin_main_menu(admin_tg_id: int | None = None) -> types.InlineKeyboardM
         types.InlineKeyboardButton("📢 Bildirishnoma guruhi", callback_data="workgroup:menu", style="primary"),
     )
     kb.row(
+        types.InlineKeyboardButton("⚙️ Sozlamalar", callback_data="settings:menu", style="primary"),
+    )
+    kb.row(
         types.InlineKeyboardButton("📖 Qo'llanma (yordam)", callback_data="guide:menu", style="primary"),
     )
     if admin_tg_id in SUPERADMINS:
