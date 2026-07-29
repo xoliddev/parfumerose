@@ -4065,7 +4065,9 @@ async def stats_usage_one(callback_query: types.CallbackQuery, state: FSMContext
                 line += f" ({abs(diff_min)} daq kam)"
         report.append(line)
 
-    await bot.send_message(callback_query.from_user.id, "\n".join(report), parse_mode="HTML")
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"statsm_{month}", style="primary"))
+    await bot.send_message(callback_query.from_user.id, "\n".join(report), reply_markup=kb, parse_mode="HTML")
     await callback_query.answer()
 
 
