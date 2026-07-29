@@ -197,13 +197,12 @@ def _build_live_location_prompt_keyboard() -> InlineKeyboardMarkup:
 def _build_live_location_prompt_text(is_departure: bool) -> str:
     action_text = "Ishdan ketayotgan bo'lsangiz" if is_departure else "Ishxonaga kelgan bo'lsangiz"
     return (
-        f"{action_text}, jonli lokatsiya yuboring.\n\n"
-        "Oddiy lokatsiya qabul qilinmaydi.\n\n"
+        f"{action_text}, lokatsiyangizni yuboring.\n\n"
+        "Sinov rejimida oddiy va jonli lokatsiya ham qabul qilinadi.\n\n"
         "Qanday yuboriladi:\n"
         "1. 📎 ni bosing\n"
         "2. Location ni tanlang\n"
-        "3. Share My Live Location ni bosing\n"
-        "4. 15 daqiqaga yuboring"
+        "3. Hozirgi joylashuvni yuboring"
     )
 
 
@@ -698,16 +697,6 @@ async def loc_handler(message: types.Message, state: FSMContext):
         return
 
     loc = message.location
-    if not getattr(loc, "live_period", None):
-        await message.answer("Oddiy lokatsiya emas, jonli lokatsiya yuboring.")
-        prompt_data = await state.get_data()
-        await show_location_issue_prompt(
-            message.chat.id,
-            prompt_data.get("menu_message_id"),
-            None,
-        )
-        return
-
     dist = db.calculate_distance(loc.latitude, loc.longitude,
                                  ALLOWED_LAT, ALLOWED_LON)
 
@@ -731,7 +720,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
             requested_at = None
 
     if requested_at and message_dt and message_dt < requested_at:
-        await message.answer("Bu eski lokatsiya. Iltimos, hozir jonli lokatsiya yuboring.")
+        await message.answer("Bu eski lokatsiya. Iltimos, hozirgi lokatsiyangizni yuboring.")
         await show_location_issue_prompt(message.chat.id, menu_message_id, None)
         return
 
