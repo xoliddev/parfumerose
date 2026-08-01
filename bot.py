@@ -610,7 +610,10 @@ def schedule_jobs():
     
     scheduler.add_job(
         check_absence_followup_job,
-        trigger=CronTrigger(minute="*/10", day_of_week='mon-sat'),
+        # Neon compute scale-to-zero bo'lishi uchun bu job kun-u tun DB'ni
+        # uyg'otmasin. Hozirgi ish boshlanishi 08:00; kechikish/kelmaganlik
+        # eslatmalari ish boshlanishidan keyingi bir necha soatda yetarli.
+        trigger=CronTrigger(hour="8-12", minute="*/10", day_of_week='mon-sat'),
     )
     
     scheduler.add_job(
