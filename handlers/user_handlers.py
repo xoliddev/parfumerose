@@ -56,6 +56,62 @@ def format_hours(total_hours_float: float) -> str:
     return f"{total_minutes // 60} soat {total_minutes % 60} daqiqa"
 
 
+USER_ACTIVITY_EVENT_LABELS = {
+    "clock_in": "🟢 Ishga keldi",
+    "clock_out": "🔴 Ishdan ketdi",
+    "manual_clock_in": "🟢 Ishga keldi (admin)",
+    "manual_clock_out": "🔴 Ishdan ketdi (admin)",
+    "rest": "🌙 Dam oldi",
+    "manual_rest": "🌙 Dam oldi (admin)",
+    "study_leave": "🎓 O'qishga ketdi",
+    "study_return": "↩️ O'qishdan qaytdi",
+    "manual_study_leave": "🎓 O'qishga ketdi (admin)",
+    "manual_study_return": "↩️ O'qishdan qaytdi (admin)",
+    "absence_prompt": "⚠️ Kelmaganlik so'raldi",
+    "absence_reason": "📝 Kelmaganlik sababi yozildi",
+    "absence_review": "📌 Kelmaganlik baholandi",
+}
+
+
+def _fmt_ts(value, fmt: str = "%H:%M:%S") -> str:
+    if not value:
+        return "—"
+    try:
+        return value.astimezone(tashkent_tz).strftime(fmt)
+    except Exception:
+        return str(value)
+
+
+def _fmt_user_event(event_type: str | None) -> str:
+    event = (event_type or "").strip()
+    return USER_ACTIVITY_EVENT_LABELS.get(event, event.replace("_", " ").title() if event else "Amal")
+
+
+def _fmt_user_day_status(day_status: dict | None) -> list[str]:
+    if not day_status:
+        return []
+    lines = []
+    if day_status.get("rest_marked"):
+        lines.append("🌙 Dam kuni")
+    review = day_status.get("absence_review_status")
+    if review == "excused":
+        lines.append("✅ Sababli kelmagan")
+    elif review == "unexcused":
+        lines.append("❌ Sababsiz kelmagan")
+    elif review == "pending":
+        lines.append("⏳ Kelmaganlik ko'rib chiqilmoqda")
+    if day_status.get("absence_reason"):
+        lines.append(f"📝 Sabab: <i>{html.escape(str(day_status['absence_reason']))}</i>")
+    if day_status.get("study_left_at"):
+        text = f"🎓 O'qish: <b>{_fmt_ts(day_status.get('study_left_at'))}</b>"
+        if day_status.get("study_returned_at"):
+            text += f" → <b>{_fmt_ts(day_status.get('study_returned_at'))}</b>"
+        elif day_status.get("study_active"):
+            text += " → hali qaytmagan"
+        lines.append(text)
+    return lines
+
+
 # user_handlers.py faylidagi eski is_late funksiyasi o'rniga buni qo'ying
 
 def is_late(start_str: str, tolerance_min: int) -> tuple[bool, int]:
@@ -806,6 +862,14 @@ async def loc_handler(message: types.Message, state: FSMContext):
                 study_active=False,
                 last_source="worker",
             )
+            await db.log_worker_activity(
+                wid,
+                "clock_in",
+                f"Xodim {branch_name} filialida ishga keldi",
+                message.from_user.id,
+                "worker",
+                today_date,
+            )
 
             await notify_admins_and_group(
                 f"🟢 {wname} ishga KELDI. ({now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')})",
@@ -874,6 +938,14 @@ async def loc_handler(message: types.Message, state: FSMContext):
             clock_out_at=now_dt_aware,
             study_active=False,
             last_source="worker",
+        )
+        await db.log_worker_activity(
+            wid,
+            "clock_out",
+            f"Xodim {session_branch_name} filialidan ishdan ketdi",
+            message.from_user.id,
+            "worker",
+            today_date,
         )
 
         admin_txt = (
@@ -948,6 +1020,14 @@ async def loc_handler(message: types.Message, state: FSMContext):
                 study_active=False,
                 last_source="worker",
             )
+            await db.log_worker_activity(
+                wid,
+                "clock_in",
+                "Xodim ishga keldi",
+                message.from_user.id,
+                "worker",
+                today_date,
+            )
 
             late, late_min = is_late(w_start.strftime('%H:%M') if w_start else None, LATE_EARLY_TOLERANCE_MIN)
             if late:
@@ -1017,6 +1097,14 @@ async def loc_handler(message: types.Message, state: FSMContext):
                 clock_out_at=now_dt_aware,
                 study_active=False,
                 last_source="worker",
+            )
+            await db.log_worker_activity(
+                wid,
+                "clock_out",
+                "Xodim ishdan ketdi",
+                message.from_user.id,
+                "worker",
+                today_date,
             )
 
             early_msg = ""
@@ -1315,7 +1403,7 @@ async def process_month(callback_query: types.CallbackQuery, state: FSMContext):
     async with db.pool.acquire() as conn:
         sessions = await conn.fetch(
             """
-            SELECT date, arrival_time, departure_time, session_daily_hours, total_hours, is_friday
+            SELECT date, arrival_time, departure_time, session_daily_hours, total_hours, is_friday, late_reason
             FROM work_sessions
             WHERE user_id = $1
               AND to_char(date
@@ -1324,20 +1412,66 @@ async def process_month(callback_query: types.CallbackQuery, state: FSMContext):
             """,
             worker_id, month_str
         )
+        day_states = await conn.fetch(
+            """
+            SELECT *
+            FROM worker_day_state_v2
+            WHERE worker_id = $1
+              AND to_char(work_date, 'YYYY-MM') = $2
+            ORDER BY work_date
+            """,
+            worker_id,
+            month_str,
+        )
+        activity_records = await conn.fetch(
+            """
+            SELECT *
+            FROM worker_activity_log_v2
+            WHERE worker_id = $1
+              AND to_char(work_date, 'YYYY-MM') = $2
+            ORDER BY work_date, created_at
+            """,
+            worker_id,
+            month_str,
+        )
 
     y, m = year, month_num
     next_month = m % 12 + 1
     next_year = y + (m // 12)
     last_day = (datetime.date(next_year, next_month, 1) - datetime.timedelta(days=1)).day
 
-    day_map = {f"{month_str}-{d:02d}": {"arr": None, "dep": None, "req": None, "got": None, "fri": False} for d in
-               range(1, last_day + 1)}
+    day_map = {
+        f"{month_str}-{d:02d}": {
+            "arr": None,
+            "dep": None,
+            "req": None,
+            "got": None,
+            "fri": False,
+            "late_reason": None,
+            "status": None,
+            "activities": [],
+        }
+        for d in range(1, last_day + 1)
+    }
 
     for session in sessions:
         d_str = session['date'].strftime('%Y-%m-%d')
-        day_map[d_str] = {"arr": session['arrival_time'], "dep": session['departure_time'],
-                          "req": session['session_daily_hours'], "got": session['total_hours'],
-                          "fri": bool(session['is_friday'])}
+        day_map[d_str].update({
+            "arr": session['arrival_time'],
+            "dep": session['departure_time'],
+            "req": session['session_daily_hours'],
+            "got": session['total_hours'],
+            "fri": bool(session['is_friday']),
+            "late_reason": session['late_reason'],
+        })
+    for row in day_states:
+        d_str = row["work_date"].strftime("%Y-%m-%d")
+        if d_str in day_map:
+            day_map[d_str]["status"] = dict(row)
+    for row in activity_records:
+        d_str = row["work_date"].strftime("%Y-%m-%d")
+        if d_str in day_map:
+            day_map[d_str]["activities"].append(dict(row))
 
     tol = LATE_EARLY_TOLERANCE_MIN
     rest_cfg = await db.get_rest_day()
@@ -1348,18 +1482,27 @@ async def process_month(callback_query: types.CallbackQuery, state: FSMContext):
 
         if rest_cfg is not None and wd == rest_cfg and info["arr"] is None: continue
 
+        status_lines = _fmt_user_day_status(info.get("status"))
+        status = info.get("status") or {}
+
         prefix = "🟢"
         if rest_cfg is not None and wd == rest_cfg and info["arr"]:
             prefix = "🔵"
+        elif status.get("rest_marked"):
+            prefix = "🌙"
+        elif status.get("absence_review_status") == "excused":
+            prefix = "🟡"
+        elif status.get("absence_review_status") == "unexcused":
+            prefix = "⚫"
+        elif info["arr"] is None and (status_lines or info.get("activities")):
+            prefix = "📌"
         elif info["arr"] is None:
             prefix = "🔴"
             report.append(f"{prefix} {day_str} — botdan <i>foydalanilmagan</i>")
             continue
 
-        # --- TUZATISH SHU YERDA ---
-        arr_str = info['arr'].astimezone(tashkent_tz).strftime('%H:%M:%S') if info['arr'] else '—'
-        dep_str = info['dep'].astimezone(tashkent_tz).strftime('%H:%M:%S') if info['dep'] else '—'
-        # -------------------------
+        arr_str = _fmt_ts(info['arr'])
+        dep_str = _fmt_ts(info['dep'])
 
         line = f"{prefix} {day_str}: {arr_str} — {dep_str}"
 
@@ -1372,8 +1515,32 @@ async def process_month(callback_query: types.CallbackQuery, state: FSMContext):
             elif diff < -tol:
                 line += f" ({abs(diff)} daq kam)"
         report.append(line)
+        if info.get("late_reason"):
+            report.append(f"   📝 Kechikish sababi: <i>{html.escape(str(info['late_reason']))}</i>")
+        for status_line in status_lines:
+            report.append(f"   {status_line}")
+        if info.get("activities"):
+            report.append("   🧾 Harakatlar:")
+            for activity in info["activities"]:
+                note = (activity.get("note") or "").strip()
+                note_text = f" — <i>{html.escape(note)}</i>" if note else ""
+                report.append(f"      <code>{_fmt_ts(activity.get('created_at'))}</code> {_fmt_user_event(activity.get('event_type'))}{note_text}")
 
-    await callback_query.message.edit_text("\n".join(report), parse_mode="HTML", reply_markup=None)
+    final_report = "\n".join(report)
+    if len(final_report) <= 3600:
+        await callback_query.message.edit_text(final_report, parse_mode="HTML", reply_markup=None)
+    else:
+        await callback_query.message.edit_text(f"📊 {month_str} statistikangiz tayyor. Quyida bo'lib yuborildi.")
+        chunk = ""
+        for line in report:
+            candidate = f"{chunk}\n{line}" if chunk else line
+            if len(candidate) > 3600:
+                await bot.send_message(callback_query.from_user.id, chunk, parse_mode="HTML")
+                chunk = line
+            else:
+                chunk = candidate
+        if chunk:
+            await bot.send_message(callback_query.from_user.id, chunk, parse_mode="HTML")
     await state.finish()
     await callback_query.answer()
 

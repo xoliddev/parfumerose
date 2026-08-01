@@ -1030,7 +1030,27 @@ async def get_user_distinct_years(tg_id: int) -> List[int]:
     if worker_id is None: return []
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT DISTINCT EXTRACT(YEAR FROM date)::INTEGER AS yr FROM work_sessions WHERE user_id = $1 ORDER BY yr ASC",
+            """
+            SELECT DISTINCT yr
+            FROM (
+                SELECT EXTRACT(YEAR FROM date)::INTEGER AS yr
+                FROM work_sessions
+                WHERE user_id = $1
+                UNION
+                SELECT EXTRACT(YEAR FROM work_date)::INTEGER AS yr
+                FROM worker_day_state_v2
+                WHERE worker_id = $1
+                UNION
+                SELECT EXTRACT(YEAR FROM work_date)::INTEGER AS yr
+                FROM worker_activity_log_v2
+                WHERE worker_id = $1
+                UNION
+                SELECT EXTRACT(YEAR FROM attendance.timestamp)::INTEGER AS yr
+                FROM attendance
+                WHERE user_id = $1
+            ) years
+            ORDER BY yr ASC
+            """,
             worker_id)
         return [row['yr'] for row in rows]
 
@@ -1038,7 +1058,27 @@ async def get_user_distinct_years(tg_id: int) -> List[int]:
 async def get_user_distinct_months(tg_id: int, year: int) -> List[Tuple[int, str]]:
     worker_id = await get_worker_db_id(tg_id)
     if worker_id is None: return []
-    query = "SELECT DISTINCT EXTRACT(MONTH FROM date)::INTEGER AS mnum FROM work_sessions WHERE user_id = $1 AND EXTRACT(YEAR FROM date) = $2 ORDER BY mnum ASC"
+    query = """
+        SELECT DISTINCT mnum
+        FROM (
+            SELECT EXTRACT(MONTH FROM date)::INTEGER AS mnum
+            FROM work_sessions
+            WHERE user_id = $1 AND EXTRACT(YEAR FROM date) = $2
+            UNION
+            SELECT EXTRACT(MONTH FROM work_date)::INTEGER AS mnum
+            FROM worker_day_state_v2
+            WHERE worker_id = $1 AND EXTRACT(YEAR FROM work_date) = $2
+            UNION
+            SELECT EXTRACT(MONTH FROM work_date)::INTEGER AS mnum
+            FROM worker_activity_log_v2
+            WHERE worker_id = $1 AND EXTRACT(YEAR FROM work_date) = $2
+            UNION
+            SELECT EXTRACT(MONTH FROM attendance.timestamp)::INTEGER AS mnum
+            FROM attendance
+            WHERE user_id = $1 AND EXTRACT(YEAR FROM attendance.timestamp) = $2
+        ) months
+        ORDER BY mnum ASC
+    """
     async with pool.acquire() as conn:
         rows = await conn.fetch(query, worker_id, year)
     names = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr",

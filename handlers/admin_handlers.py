@@ -54,6 +54,124 @@ if not os.path.exists(TEMP_AUDIO_DIR):
 tashkent_tz = pytz.timezone('Asia/Tashkent')
 
 
+ACTIVITY_EVENT_LABELS = {
+    "clock_in": "🟢 Ishga keldi",
+    "clock_out": "🔴 Ishdan ketdi",
+    "manual_clock_in": "🟢 Ishga keldi (admin)",
+    "manual_clock_out": "🔴 Ishdan ketdi (admin)",
+    "rest": "🌙 Dam oldi",
+    "manual_rest": "🌙 Dam oldi (admin)",
+    "study_leave": "🎓 O'qishga ketdi",
+    "study_return": "↩️ O'qishdan qaytdi",
+    "manual_study_leave": "🎓 O'qishga ketdi (admin)",
+    "manual_study_return": "↩️ O'qishdan qaytdi (admin)",
+    "absence_prompt": "⚠️ Kelmaganlik so'raldi",
+    "absence_reason": "📝 Kelmaganlik sababi yozildi",
+    "absence_review": "📌 Kelmaganlik baholandi",
+}
+
+ABSENCE_REVIEW_LABELS = {
+    "excused": "✅ Sababli",
+    "unexcused": "❌ Sababsiz",
+    "pending": "⏳ Ko'rib chiqilmoqda",
+}
+
+
+def _fmt_ts(value, fmt: str = "%H:%M:%S") -> str:
+    if not value:
+        return "—"
+    try:
+        return value.astimezone(tashkent_tz).strftime(fmt)
+    except Exception:
+        return str(value)
+
+
+def _fmt_event_label(event_type: str | None) -> str:
+    event = (event_type or "").strip()
+    return ACTIVITY_EVENT_LABELS.get(event, event.replace("_", " ").title() if event else "Amal")
+
+
+def _fmt_absence_review(status: str | None) -> str:
+    if not status:
+        return ""
+    return ABSENCE_REVIEW_LABELS.get(status, status)
+
+
+def _format_day_status_summary(day_status: dict | None) -> list[str]:
+    if not day_status:
+        return []
+
+    lines = []
+    if day_status.get("rest_marked"):
+        lines.append("🌙 <b>Dam kuni</b> sifatida belgilangan")
+
+    review_label = _fmt_absence_review(day_status.get("absence_review_status"))
+    if review_label:
+        lines.append(f"{review_label} kelmaganlik")
+
+    if day_status.get("absence_reason"):
+        lines.append(f"📝 Sabab: <i>{html.escape(str(day_status['absence_reason']))}</i>")
+
+    if day_status.get("study_left_at"):
+        text = f"🎓 O'qishga ketdi: <b>{_fmt_ts(day_status.get('study_left_at'))}</b>"
+        if day_status.get("study_returned_at"):
+            text += f" → qaytdi: <b>{_fmt_ts(day_status.get('study_returned_at'))}</b>"
+        elif day_status.get("study_active"):
+            text += " → hali qaytmagan"
+        lines.append(text)
+
+    return lines
+
+
+def _format_activity_timeline(activity_rows: list[dict], attendance_rows: list[dict] | None = None) -> list[str]:
+    events = []
+    for row in activity_rows or []:
+        note = (row.get("note") or "").strip()
+        actor = "admin" if (row.get("actor_role") or "") == "admin" else "xodim"
+        text = f"{_fmt_event_label(row.get('event_type'))}"
+        if note:
+            text += f" — <i>{html.escape(note)}</i>"
+        text += f" <code>({actor})</code>"
+        events.append((row.get("created_at"), text))
+
+    for row in attendance_rows or []:
+        msg = (row.get("message") or "Lokatsiya").strip()
+        reason = (row.get("reason") or "").strip()
+        text = f"📍 {html.escape(msg)}"
+        if reason:
+            text += f" — <i>{html.escape(reason)}</i>"
+        events.append((row.get("timestamp"), text))
+
+    events.sort(key=lambda item: item[0] or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc))
+    return [f"<code>{_fmt_ts(ts)}</code> {text}" for ts, text in events]
+
+
+async def _send_html_report(chat_id: int, text: str, *, reply_markup=None):
+    limit = 3600
+    if len(text) <= limit:
+        await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode="HTML")
+        return
+
+    chunks = []
+    current = ""
+    for line in text.splitlines():
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+
+    for index, chunk in enumerate(chunks):
+        await bot.send_message(
+            chat_id,
+            chunk,
+            reply_markup=reply_markup if index == len(chunks) - 1 else None,
+            parse_mode="HTML",
+        )
+
 
 def _build_web_removed_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
@@ -3096,7 +3214,7 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
         if branch_scope is None:
             attendance_records = await conn.fetch(
                 """
-                SELECT a.name, a.timestamp, a.message, b.name AS branch_name
+                SELECT a.user_id, a.name, a.timestamp, a.message, a.reason, b.name AS branch_name
                 FROM attendance a
                 LEFT JOIN branches b ON b.id = a.branch_id
                 WHERE a.timestamp::date = $1
@@ -3122,13 +3240,44 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
                 """,
                 today,
             )
+            day_states = await conn.fetch(
+                """
+                SELECT
+                    w.id AS worker_id,
+                    w.full_name,
+                    b.name AS branch_name,
+                    ds.*
+                FROM worker_day_state_v2 ds
+                JOIN workers w ON w.id = ds.worker_id
+                LEFT JOIN branches b ON b.id = w.branch_id
+                WHERE ds.work_date = $1
+                ORDER BY b.name NULLS LAST, w.full_name
+                """,
+                today,
+            )
+            activity_records = await conn.fetch(
+                """
+                SELECT
+                    al.*,
+                    w.full_name,
+                    b.name AS branch_name
+                FROM worker_activity_log_v2 al
+                JOIN workers w ON w.id = al.worker_id
+                LEFT JOIN branches b ON b.id = w.branch_id
+                WHERE al.work_date = $1
+                ORDER BY al.created_at
+                """,
+                today,
+            )
         elif not branch_scope:
             attendance_records = []
             sessions = []
+            day_states = []
+            activity_records = []
         else:
             attendance_records = await conn.fetch(
                 """
-                SELECT a.name, a.timestamp, a.message, b.name AS branch_name
+                SELECT a.user_id, a.name, a.timestamp, a.message, a.reason, b.name AS branch_name
                 FROM attendance a
                 LEFT JOIN branches b ON b.id = a.branch_id
                 WHERE a.timestamp::date = $1
@@ -3158,17 +3307,87 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
                 today,
                 branch_scope,
             )
+            day_states = await conn.fetch(
+                """
+                SELECT
+                    w.id AS worker_id,
+                    w.full_name,
+                    b.name AS branch_name,
+                    ds.*
+                FROM worker_day_state_v2 ds
+                JOIN workers w ON w.id = ds.worker_id
+                LEFT JOIN branches b ON b.id = w.branch_id
+                WHERE ds.work_date = $1
+                  AND w.branch_id = ANY($2::int[])
+                ORDER BY b.name NULLS LAST, w.full_name
+                """,
+                today,
+                branch_scope,
+            )
+            activity_records = await conn.fetch(
+                """
+                SELECT
+                    al.*,
+                    w.full_name,
+                    b.name AS branch_name
+                FROM worker_activity_log_v2 al
+                JOIN workers w ON w.id = al.worker_id
+                LEFT JOIN branches b ON b.id = w.branch_id
+                WHERE al.work_date = $1
+                  AND w.branch_id = ANY($2::int[])
+                ORDER BY al.created_at
+                """,
+                today,
+                branch_scope,
+            )
 
-    text_att = "<b>Bugungi qo'shimcha yozuvlar:</b>\n" if attendance_records else "Bugun qo'shimcha yozuvlar mavjud emas.\n"
+    text_status = "📌 <b>Bugungi holatlar:</b>\n"
+    status_lines = []
+    for row in day_states:
+        row_dict = dict(row)
+        summaries = _format_day_status_summary(row_dict)
+        if not summaries:
+            continue
+        branch_suffix = f" [{row_dict['branch_name']}]" if row_dict.get("branch_name") else ""
+        status_lines.append(f"• <b>{html.escape(row_dict['full_name'])}</b>{branch_suffix}: " + "; ".join(summaries))
+    text_status += "\n".join(status_lines) + "\n" if status_lines else "Bugun alohida holatlar yo'q.\n"
+
+    grouped_activity: dict[int, list[dict]] = {}
+    for record in activity_records:
+        grouped_activity.setdefault(int(record["worker_id"]), []).append(dict(record))
+
+    text_timeline = "\n🧾 <b>Bugungi harakatlar timeline:</b>\n"
+    if grouped_activity:
+        worker_labels = {
+            int(record["worker_id"]): (
+                f"{record['full_name']}"
+                + (f" [{record['branch_name']}]" if dict(record).get("branch_name") else "")
+            )
+            for record in activity_records
+        }
+        for worker_id, rows in grouped_activity.items():
+            text_timeline += f"\n<b>{html.escape(worker_labels.get(worker_id, f'Xodim {worker_id}'))}</b>\n"
+            for line in _format_activity_timeline(rows):
+                text_timeline += f"  {line}\n"
+    else:
+        text_timeline += "Bugun timeline yozuvlari yo'q.\n"
+
+    text_att = "\n📍 <b>Bugungi lokatsiya/qo'shimcha yozuvlar:</b>\n" if attendance_records else "\nBugun qo'shimcha yozuvlar mavjud emas.\n"
     for record in attendance_records:
-        ts_str = record['timestamp'].astimezone(tashkent_tz).strftime('%H:%M:%S')
-        branch_suffix = f" [{record['branch_name']}]" if record.get('branch_name') else ""
-        text_att += f"<code>{ts_str}</code> - {record['name']}{branch_suffix}: <i>{record['message']}</i>\n"
+        record_dict = dict(record)
+        ts_str = _fmt_ts(record['timestamp'])
+        branch_suffix = f" [{record['branch_name']}]" if record_dict.get('branch_name') else ""
+        text_att += (
+            f"<code>{ts_str}</code> - {html.escape(str(record['name']))}{branch_suffix}: "
+            f"<i>{html.escape(str(record['message']))}</i>\n"
+        )
+        if record_dict.get("reason"):
+            text_att += f"   Sabab: <i>{html.escape(str(record['reason']))}</i>\n"
 
     if not sessions:
-        text_sess = "<b>Bugun hech kim ishga kelgani qayd qilinmadi.</b>\n"
+        text_sess = "🕒 <b>Bugun hech kim ishga kelgani qayd qilinmadi.</b>\n"
     else:
-        text_sess = "<b>Bugungi ish soatlari:</b>\n"
+        text_sess = "🕒 <b>Bugungi ish soatlari:</b>\n"
         for i, session in enumerate(sessions, start=1):
             full_name = session["full_name"]
             arr = session["arrival_time"]
@@ -3177,13 +3396,13 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
             is_friday = session["is_friday"]
             sess_req = session["session_daily_hours"]
             branch_name = session["branch_name"]
-            arr_str = arr.astimezone(tashkent_tz).strftime('%H:%M:%S')
+            arr_str = _fmt_ts(arr)
             branch_suffix = f" [{branch_name}]" if branch_name else ""
 
             if dep is None:
                 text_sess += f"{i}. ▶️ {full_name}{branch_suffix} - Keldi: <b>{arr_str}</b>, hali ketmadi.\n"
             else:
-                dep_str = dep.astimezone(tashkent_tz).strftime('%H:%M:%S')
+                dep_str = _fmt_ts(dep)
                 actual_str = format_hours(total_hours or 0.0)
                 expected_str = format_hours(sess_req or 0.0) if sess_req and float(sess_req) > 0 else "Belgilanmagan"
 
@@ -3197,8 +3416,8 @@ async def admin_daily_report(callback_query: types.CallbackQuery):
                 text_sess += (f"{i}. ✅ {full_name}{branch_suffix} {friday_tag}- <b>{arr_str}</b> da keldi, <b>{dep_str}</b> da ketdi.\n"
                               f"   Ishlagan: <i>{actual_str}</i> | Kutilgan: <i>{expected_str}</i>{diff_str}\n")
 
-    final_text = text_sess + "\n" + text_att
-    await bot.send_message(callback_query.from_user.id, final_text, parse_mode="HTML")
+    final_text = text_sess + "\n" + text_status + text_timeline + text_att
+    await _send_html_report(callback_query.from_user.id, final_text)
     await callback_query.answer()
 
 
@@ -3214,9 +3433,24 @@ async def show_months(callback_query: types.CallbackQuery):
         if branch_scope is None:
             months_records = await conn.fetch(
                 """
-                SELECT DISTINCT to_char(ws.date, 'YYYY-MM') AS month
-                FROM work_sessions ws
-                JOIN workers w ON w.id = ws.user_id
+                SELECT DISTINCT month
+                FROM (
+                    SELECT to_char(ws.date, 'YYYY-MM') AS month
+                    FROM work_sessions ws
+                    JOIN workers w ON w.id = ws.user_id
+                    UNION
+                    SELECT to_char(ds.work_date, 'YYYY-MM') AS month
+                    FROM worker_day_state_v2 ds
+                    JOIN workers w ON w.id = ds.worker_id
+                    UNION
+                    SELECT to_char(al.work_date, 'YYYY-MM') AS month
+                    FROM worker_activity_log_v2 al
+                    JOIN workers w ON w.id = al.worker_id
+                    UNION
+                    SELECT to_char(a.timestamp::date, 'YYYY-MM') AS month
+                    FROM attendance a
+                    JOIN workers w ON w.id = a.user_id
+                ) m
                 ORDER BY month DESC
                 """
             )
@@ -3225,10 +3459,28 @@ async def show_months(callback_query: types.CallbackQuery):
         else:
             months_records = await conn.fetch(
                 """
-                SELECT DISTINCT to_char(ws.date, 'YYYY-MM') AS month
-                FROM work_sessions ws
-                JOIN workers w ON w.id = ws.user_id
-                WHERE COALESCE(ws.branch_id, w.branch_id) = ANY($1::int[])
+                SELECT DISTINCT month
+                FROM (
+                    SELECT to_char(ws.date, 'YYYY-MM') AS month
+                    FROM work_sessions ws
+                    JOIN workers w ON w.id = ws.user_id
+                    WHERE COALESCE(ws.branch_id, w.branch_id) = ANY($1::int[])
+                    UNION
+                    SELECT to_char(ds.work_date, 'YYYY-MM') AS month
+                    FROM worker_day_state_v2 ds
+                    JOIN workers w ON w.id = ds.worker_id
+                    WHERE w.branch_id = ANY($1::int[])
+                    UNION
+                    SELECT to_char(al.work_date, 'YYYY-MM') AS month
+                    FROM worker_activity_log_v2 al
+                    JOIN workers w ON w.id = al.worker_id
+                    WHERE w.branch_id = ANY($1::int[])
+                    UNION
+                    SELECT to_char(a.timestamp::date, 'YYYY-MM') AS month
+                    FROM attendance a
+                    JOIN workers w ON w.id = a.user_id
+                    WHERE COALESCE(a.branch_id, w.branch_id) = ANY($1::int[])
+                ) m
                 ORDER BY month DESC
                 """,
                 branch_scope,
@@ -3269,11 +3521,29 @@ async def show_days_in_month(callback_query: types.CallbackQuery):
         if branch_scope is None:
             days_records = await conn.fetch(
                 """
-                SELECT DISTINCT ws.date
-                FROM work_sessions ws
-                JOIN workers w ON w.id = ws.user_id
-                WHERE to_char(ws.date, 'YYYY-MM') = $1
-                ORDER BY ws.date DESC
+                SELECT DISTINCT day_date AS date
+                FROM (
+                    SELECT ws.date AS day_date
+                    FROM work_sessions ws
+                    JOIN workers w ON w.id = ws.user_id
+                    WHERE to_char(ws.date, 'YYYY-MM') = $1
+                    UNION
+                    SELECT ds.work_date AS day_date
+                    FROM worker_day_state_v2 ds
+                    JOIN workers w ON w.id = ds.worker_id
+                    WHERE to_char(ds.work_date, 'YYYY-MM') = $1
+                    UNION
+                    SELECT al.work_date AS day_date
+                    FROM worker_activity_log_v2 al
+                    JOIN workers w ON w.id = al.worker_id
+                    WHERE to_char(al.work_date, 'YYYY-MM') = $1
+                    UNION
+                    SELECT a.timestamp::date AS day_date
+                    FROM attendance a
+                    JOIN workers w ON w.id = a.user_id
+                    WHERE to_char(a.timestamp::date, 'YYYY-MM') = $1
+                ) d
+                ORDER BY day_date DESC
                 """,
                 month,
             )
@@ -3282,12 +3552,33 @@ async def show_days_in_month(callback_query: types.CallbackQuery):
         else:
             days_records = await conn.fetch(
                 """
-                SELECT DISTINCT ws.date
-                FROM work_sessions ws
-                JOIN workers w ON w.id = ws.user_id
-                WHERE to_char(ws.date, 'YYYY-MM') = $1
-                  AND COALESCE(ws.branch_id, w.branch_id) = ANY($2::int[])
-                ORDER BY ws.date DESC
+                SELECT DISTINCT day_date AS date
+                FROM (
+                    SELECT ws.date AS day_date
+                    FROM work_sessions ws
+                    JOIN workers w ON w.id = ws.user_id
+                    WHERE to_char(ws.date, 'YYYY-MM') = $1
+                      AND COALESCE(ws.branch_id, w.branch_id) = ANY($2::int[])
+                    UNION
+                    SELECT ds.work_date AS day_date
+                    FROM worker_day_state_v2 ds
+                    JOIN workers w ON w.id = ds.worker_id
+                    WHERE to_char(ds.work_date, 'YYYY-MM') = $1
+                      AND w.branch_id = ANY($2::int[])
+                    UNION
+                    SELECT al.work_date AS day_date
+                    FROM worker_activity_log_v2 al
+                    JOIN workers w ON w.id = al.worker_id
+                    WHERE to_char(al.work_date, 'YYYY-MM') = $1
+                      AND w.branch_id = ANY($2::int[])
+                    UNION
+                    SELECT a.timestamp::date AS day_date
+                    FROM attendance a
+                    JOIN workers w ON w.id = a.user_id
+                    WHERE to_char(a.timestamp::date, 'YYYY-MM') = $1
+                      AND COALESCE(a.branch_id, w.branch_id) = ANY($2::int[])
+                ) d
+                ORDER BY day_date DESC
                 """,
                 month,
                 branch_scope,
@@ -3332,9 +3623,11 @@ async def show_employees_in_day(callback_query: types.CallbackQuery):
                 """
                 SELECT DISTINCT w.id, w.full_name, b.name AS branch_name
                 FROM workers w
-                JOIN work_sessions s ON w.id = s.user_id
-                LEFT JOIN branches b ON b.id = COALESCE(s.branch_id, w.branch_id)
-                WHERE s.date = $1
+                LEFT JOIN branches b ON b.id = w.branch_id
+                WHERE EXISTS (SELECT 1 FROM work_sessions s WHERE s.user_id = w.id AND s.date = $1)
+                   OR EXISTS (SELECT 1 FROM worker_day_state_v2 ds WHERE ds.worker_id = w.id AND ds.work_date = $1)
+                   OR EXISTS (SELECT 1 FROM worker_activity_log_v2 al WHERE al.worker_id = w.id AND al.work_date = $1)
+                   OR EXISTS (SELECT 1 FROM attendance a WHERE a.user_id = w.id AND a.timestamp::date = $1)
                 ORDER BY w.id ASC
                 """,
                 day_date,
@@ -3346,10 +3639,14 @@ async def show_employees_in_day(callback_query: types.CallbackQuery):
                 """
                 SELECT DISTINCT w.id, w.full_name, b.name AS branch_name
                 FROM workers w
-                JOIN work_sessions s ON w.id = s.user_id
-                LEFT JOIN branches b ON b.id = COALESCE(s.branch_id, w.branch_id)
-                WHERE s.date = $1
-                  AND COALESCE(s.branch_id, w.branch_id) = ANY($2::int[])
+                LEFT JOIN branches b ON b.id = w.branch_id
+                WHERE w.branch_id = ANY($2::int[])
+                  AND (
+                    EXISTS (SELECT 1 FROM work_sessions s WHERE s.user_id = w.id AND s.date = $1)
+                    OR EXISTS (SELECT 1 FROM worker_day_state_v2 ds WHERE ds.worker_id = w.id AND ds.work_date = $1)
+                    OR EXISTS (SELECT 1 FROM worker_activity_log_v2 al WHERE al.worker_id = w.id AND al.work_date = $1)
+                    OR EXISTS (SELECT 1 FROM attendance a WHERE a.user_id = w.id AND a.timestamp::date = $1)
+                  )
                 ORDER BY w.id ASC
                 """,
                 day_date,
@@ -3406,16 +3703,33 @@ async def show_daily_details(callback_query: types.CallbackQuery):
             "SELECT timestamp, message, reason FROM attendance WHERE user_id = $1 AND timestamp::date = $2 ORDER BY timestamp",
             worker_id, day_date
         )
+        day_status = await conn.fetchrow(
+            "SELECT * FROM worker_day_state_v2 WHERE worker_id = $1 AND work_date = $2",
+            worker_id,
+            day_date,
+        )
+        activity_records = await conn.fetch(
+            "SELECT * FROM worker_activity_log_v2 WHERE worker_id = $1 AND work_date = $2 ORDER BY created_at",
+            worker_id,
+            day_date,
+        )
 
     worker_label = worker["full_name"] if worker else f"Xodim {worker_id}"
     if worker and worker["branch_name"]:
         worker_label += f" [{worker['branch_name']}]"
     details = f"<b>{day} kungi to'liq ma'lumot:</b>\n<b>{worker_label}</b>\n\n"
+    status_lines = _format_day_status_summary(dict(day_status) if day_status else None)
+    if status_lines:
+        details += "📌 <b>Kun holati:</b>\n"
+        for line in status_lines:
+            details += f"  {line}\n"
+        details += "\n"
+
     if sessions:
+        details += "🕒 <b>Ish sessiyalari:</b>\n"
         for idx, session in enumerate(sessions, start=1):
-            arr_time = session['arrival_time'].astimezone(tashkent_tz).strftime('%H:%M:%S') if session['arrival_time'] else '—'
-            dep_time = session['departure_time'].astimezone(tashkent_tz).strftime('%H:%M:%S') if session[
-                'departure_time'] else 'Hali ketmagan'
+            arr_time = _fmt_ts(session['arrival_time'])
+            dep_time = _fmt_ts(session['departure_time']) if session['departure_time'] else 'Hali ketmagan'
             total_h_str = format_hours(session['total_hours'] or 0.0)
             daily_h_str = format_hours(session['session_daily_hours'] or 0.0)
 
@@ -3428,21 +3742,30 @@ async def show_daily_details(callback_query: types.CallbackQuery):
             if session['is_friday']:
                 details += "  (Juma kuni)\n"
             if session['late_reason']:
-                details += f"  Sabab: <i>{session['late_reason']}</i>\n"
+                details += f"  Sabab: <i>{html.escape(str(session['late_reason']))}</i>\n"
             details += "\n"
     else:
         details += "Bu kun uchun ish sessiyalari topilmadi.\n\n"
 
+    timeline_lines = _format_activity_timeline([dict(row) for row in activity_records], [dict(row) for row in attendances])
+    if timeline_lines:
+        details += "🧾 <b>Harakatlar timeline:</b>\n"
+        for line in timeline_lines:
+            details += f"  {line}\n"
+        details += "\n"
+
     if attendances:
-        details += "<b>Qo'shimcha yozuvlar:</b>\n"
+        details += "📍 <b>Qo'shimcha lokatsiya/yozuvlar:</b>\n"
         for att in attendances:
-            ts = att['timestamp'].astimezone(tashkent_tz).strftime('%H:%M:%S')
-            details += f"<code>{ts}</code>: {att['message']}"
+            ts = _fmt_ts(att['timestamp'])
+            details += f"<code>{ts}</code>: {html.escape(str(att['message']))}"
             if att['reason']:
-                details += f" (Sabab: <i>{att['reason']}</i>)"
+                details += f" (Sabab: <i>{html.escape(str(att['reason']))}</i>)"
             details += "\n"
 
-    await bot.send_message(callback_query.from_user.id, details, parse_mode="HTML")
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"day_{day}", style="primary"))
+    await _send_html_report(callback_query.from_user.id, details, reply_markup=kb)
     await callback_query.answer()
 
 
@@ -3964,21 +4287,49 @@ async def stats_months_back(callback_query: types.CallbackQuery):
     async with db.pool.acquire() as conn:
         if branch_scope is None:
             records = await conn.fetch("""
-                                       SELECT DISTINCT to_char(ws.date, 'YYYY-MM') as m
-                                       FROM work_sessions ws
-                                       JOIN workers w ON w.id = ws.user_id
-                                       WHERE EXTRACT(YEAR FROM ws.date) = $1
+                                       SELECT DISTINCT m
+                                       FROM (
+                                           SELECT to_char(ws.date, 'YYYY-MM') as m
+                                           FROM work_sessions ws
+                                           JOIN workers w ON w.id = ws.user_id
+                                           WHERE EXTRACT(YEAR FROM ws.date) = $1
+                                           UNION
+                                           SELECT to_char(ds.work_date, 'YYYY-MM') as m
+                                           FROM worker_day_state_v2 ds
+                                           JOIN workers w ON w.id = ds.worker_id
+                                           WHERE EXTRACT(YEAR FROM ds.work_date) = $1
+                                           UNION
+                                           SELECT to_char(al.work_date, 'YYYY-MM') as m
+                                           FROM worker_activity_log_v2 al
+                                           JOIN workers w ON w.id = al.worker_id
+                                           WHERE EXTRACT(YEAR FROM al.work_date) = $1
+                                       ) months
                                        ORDER BY m DESC
                                        """, int(year))
         elif not branch_scope:
             records = []
         else:
             records = await conn.fetch("""
-                                       SELECT DISTINCT to_char(ws.date, 'YYYY-MM') as m
-                                       FROM work_sessions ws
-                                       JOIN workers w ON w.id = ws.user_id
-                                       WHERE EXTRACT(YEAR FROM ws.date) = $1
-                                         AND COALESCE(ws.branch_id, w.branch_id) = ANY($2::int[])
+                                       SELECT DISTINCT m
+                                       FROM (
+                                           SELECT to_char(ws.date, 'YYYY-MM') as m
+                                           FROM work_sessions ws
+                                           JOIN workers w ON w.id = ws.user_id
+                                           WHERE EXTRACT(YEAR FROM ws.date) = $1
+                                             AND COALESCE(ws.branch_id, w.branch_id) = ANY($2::int[])
+                                           UNION
+                                           SELECT to_char(ds.work_date, 'YYYY-MM') as m
+                                           FROM worker_day_state_v2 ds
+                                           JOIN workers w ON w.id = ds.worker_id
+                                           WHERE EXTRACT(YEAR FROM ds.work_date) = $1
+                                             AND w.branch_id = ANY($2::int[])
+                                           UNION
+                                           SELECT to_char(al.work_date, 'YYYY-MM') as m
+                                           FROM worker_activity_log_v2 al
+                                           JOIN workers w ON w.id = al.worker_id
+                                           WHERE EXTRACT(YEAR FROM al.work_date) = $1
+                                             AND w.branch_id = ANY($2::int[])
+                                       ) months
                                        ORDER BY m DESC
                                        """, int(year), branch_scope)
 
@@ -4002,7 +4353,7 @@ async def stats_usage_one(callback_query: types.CallbackQuery, state: FSMContext
 
     async with db.pool.acquire() as conn:
         sessions = await conn.fetch("""
-                                    SELECT date, arrival_time, departure_time, session_daily_hours, total_hours
+                                    SELECT date, arrival_time, departure_time, session_daily_hours, total_hours, late_reason
                                     FROM work_sessions
                                     WHERE user_id = $1
                                       AND to_char(date
@@ -4013,6 +4364,39 @@ async def stats_usage_one(callback_query: types.CallbackQuery, state: FSMContext
             "SELECT w.full_name, b.name AS branch_name FROM workers w "
             "LEFT JOIN branches b ON b.id = w.branch_id WHERE w.id=$1",
             wid,
+        )
+        day_states = await conn.fetch(
+            """
+            SELECT *
+            FROM worker_day_state_v2
+            WHERE worker_id = $1
+              AND to_char(work_date, 'YYYY-MM') = $2
+            ORDER BY work_date
+            """,
+            wid,
+            month,
+        )
+        activity_records = await conn.fetch(
+            """
+            SELECT *
+            FROM worker_activity_log_v2
+            WHERE worker_id = $1
+              AND to_char(work_date, 'YYYY-MM') = $2
+            ORDER BY work_date, created_at
+            """,
+            wid,
+            month,
+        )
+        attendance_records = await conn.fetch(
+            """
+            SELECT timestamp, message, reason
+            FROM attendance
+            WHERE user_id = $1
+              AND to_char(timestamp::date, 'YYYY-MM') = $2
+            ORDER BY timestamp
+            """,
+            wid,
+            month,
         )
 
     if not emp_row:
@@ -4026,12 +4410,41 @@ async def stats_usage_one(callback_query: types.CallbackQuery, state: FSMContext
     import calendar  # Lokal import
     last_day = calendar.monthrange(y, m)[1]
 
-    day_map = {f"{month}-{d:02d}": {"arr": None, "dep": None, "req": None, "got": None} for d in range(1, last_day + 1)}
+    day_map = {
+        f"{month}-{d:02d}": {
+            "arr": None,
+            "dep": None,
+            "req": None,
+            "got": None,
+            "late_reason": None,
+            "status": None,
+            "activities": [],
+            "attendances": [],
+        }
+        for d in range(1, last_day + 1)
+    }
 
     for s in sessions:
         d_str = s['date'].strftime('%Y-%m-%d')
-        day_map[d_str] = {"arr": s['arrival_time'], "dep": s['departure_time'], "req": s['session_daily_hours'],
-                          "got": s['total_hours']}
+        day_map[d_str].update({
+            "arr": s['arrival_time'],
+            "dep": s['departure_time'],
+            "req": s['session_daily_hours'],
+            "got": s['total_hours'],
+            "late_reason": s['late_reason'],
+        })
+    for row in day_states:
+        d_str = row["work_date"].strftime("%Y-%m-%d")
+        if d_str in day_map:
+            day_map[d_str]["status"] = dict(row)
+    for row in activity_records:
+        d_str = row["work_date"].strftime("%Y-%m-%d")
+        if d_str in day_map:
+            day_map[d_str]["activities"].append(dict(row))
+    for row in attendance_records:
+        d_str = row["timestamp"].astimezone(tashkent_tz).strftime("%Y-%m-%d")
+        if d_str in day_map:
+            day_map[d_str]["attendances"].append(dict(row))
 
     rest_cfg = await db.get_rest_day()
     report = [f"📊 <b>{emp_name}</b> ({month})", ""]
@@ -4040,18 +4453,28 @@ async def stats_usage_one(callback_query: types.CallbackQuery, state: FSMContext
         wd = datetime.datetime.strptime(day, "%Y-%m-%d").weekday()
         if rest_cfg is not None and wd == rest_cfg and info["arr"] is None: continue
 
+        status_lines = _format_day_status_summary(info.get("status"))
+        timeline_lines = _format_activity_timeline(info.get("activities", []), info.get("attendances", []))
+        status = info.get("status") or {}
+
         prefix = "🟢"
         if rest_cfg is not None and wd == rest_cfg and info["arr"]:
             prefix = "🔵"
+        elif status.get("rest_marked"):
+            prefix = "🌙"
+        elif status.get("absence_review_status") == "excused":
+            prefix = "🟡"
+        elif status.get("absence_review_status") == "unexcused":
+            prefix = "⚫"
+        elif info["arr"] is None and (status_lines or timeline_lines):
+            prefix = "📌"
         elif info["arr"] is None:
             prefix = "🔴"
             report.append(f"{prefix} {day} — botdan <i>foydalanilmagan</i>")
             continue
 
-        # --- TUZATISH SHU YERDA ---
         arr_str = info['arr'].astimezone(tashkent_tz).strftime('%H:%M:%S') if info['arr'] else '—'
         dep_str = info['dep'].astimezone(tashkent_tz).strftime('%H:%M:%S') if info['dep'] else '—'
-        # -------------------------
 
         line = f"{prefix} {day}: {arr_str} — {dep_str}"
 
@@ -4064,10 +4487,18 @@ async def stats_usage_one(callback_query: types.CallbackQuery, state: FSMContext
             elif diff_min < -5:
                 line += f" ({abs(diff_min)} daq kam)"
         report.append(line)
+        if info.get("late_reason"):
+            report.append(f"   📝 Kechikish sababi: <i>{html.escape(str(info['late_reason']))}</i>")
+        for status_line in status_lines:
+            report.append(f"   {status_line}")
+        if timeline_lines:
+            report.append("   🧾 Harakatlar:")
+            for timeline_line in timeline_lines:
+                report.append(f"      {timeline_line}")
 
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data=f"statsm_{month}", style="primary"))
-    await bot.send_message(callback_query.from_user.id, "\n".join(report), reply_markup=kb, parse_mode="HTML")
+    await _send_html_report(callback_query.from_user.id, "\n".join(report), reply_markup=kb)
     await callback_query.answer()
 
 
@@ -4601,6 +5032,34 @@ async def manual_attendance_process(message: types.Message, state: FSMContext):
                             """, worker_id, selected_date, arrival_dt, departure_dt, total_hours,
                             worker_info['daily_work_hours'] or 0.0,
                             branch_id or worker_info['branch_id'])
+
+    await db.update_worker_day_status(
+        worker_id,
+        selected_date,
+        day_state="left" if departure_dt else "working",
+        clock_in_at=arrival_dt,
+        clock_out_at=departure_dt,
+        rest_marked=False,
+        study_active=False,
+        last_source="admin",
+    )
+    await db.log_worker_activity(
+        worker_id,
+        "manual_clock_in",
+        f"Admin qo'lda keldi vaqtini kiritdi: {arrival_time.strftime('%H:%M')}",
+        message.from_user.id,
+        "admin",
+        selected_date,
+    )
+    if departure_dt:
+        await db.log_worker_activity(
+            worker_id,
+            "manual_clock_out",
+            f"Admin qo'lda ketdi vaqtini kiritdi: {departure_dt.strftime('%H:%M')}",
+            message.from_user.id,
+            "admin",
+            selected_date,
+        )
 
     response_text = (
         f"✅ Bajarildi!\n\n"
