@@ -1,8 +1,20 @@
+import datetime
 import json
 import os
+import time
 import urllib.parse
 
 from dotenv import load_dotenv
+
+
+# Bot faqat Toshkent vaqtida ishlaydi. Server (fly.io) UTC'da bo'lsa ham
+# date.today() / datetime.now() Toshkent sanasini qaytarsin — aks holda 00:00–05:00
+# oralig'idagi amallar kechagi kunga yozilardi. POSIX format tzdata talab qilmaydi
+# (O'zbekistonda yozgi vaqt yo'q, doim UTC+5).
+os.environ["TZ"] = "<+05>-5"
+if hasattr(time, "tzset"):
+    time.tzset()
+TASHKENT_TZ = datetime.timezone(datetime.timedelta(hours=5), "Asia/Tashkent")
 
 
 APP_ENV = os.getenv("APP_ENV", "local")

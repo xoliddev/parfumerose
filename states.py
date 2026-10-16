@@ -121,3 +121,7 @@ class WipeDataState(StatesGroup):
 
 class SetBranchLocation(StatesGroup):
     waiting_for_location = State()
+
+
+class AdminHourlyRate(StatesGroup):
+    waiting_for_amount = State()

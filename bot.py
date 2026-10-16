@@ -28,7 +28,7 @@ from aiogram.utils.exceptions import (
 
 # Ma'lumotlar bazasi bilan ishlash uchun kerakli funksiyalar
 import database as db
-from config import ABSENCE_REMINDER_DELAY_MIN, BOT_TOKEN, SUPERADMINS
+from config import ABSENCE_REMINDER_DELAY_MIN, BOT_TOKEN, LATE_EARLY_TOLERANCE_MIN, SUPERADMINS, TASHKENT_TZ
 from aiogram import types
 from states import UserAttendance, WipeDataState
 from shared import (
@@ -138,14 +138,14 @@ async def send_evening_briefings():
 async def check_late_arrivals_job():
     """Ishga kech qolganlarni tekshiradi va Adminga hisobot beradi."""
     try:
-        today = datetime.date.today()
+        now_local = datetime.datetime.now(TASHKENT_TZ)
+        today = now_local.date()
         # Dushanba-Shanba kunlari tekshiramiz
         if today.weekday() == 6:  # Yakshanba
             return
 
-        threshold_time = datetime.time(9, 0) # Soat 09:00 dan kech qolganlar
-        
-        late_employees = await db.get_late_employees(today, threshold_time)
+        # Har bir xodim o'zining ish boshlash vaqtiga (work_start) nisbatan tekshiriladi.
+        late_employees = await db.get_late_employees(today, now_local, LATE_EARLY_TOLERANCE_MIN)
         
         if late_employees:
             grouped_employees = {}
@@ -628,12 +628,11 @@ _health_runner = None
 
 
 async def _start_health_server():
-    """Koyeb/Render 'web service' uxlab qolmasligi uchun mini HTTP health-server.
+    """fly.io health-check uchun mini HTTP server.
 
-    Bot long-polling bilan ishlaydi va hech qanday port tinglamaydi. Web service
-    esa $PORT'da health-check kutadi — port bo'lmasa platforma instansiyani 'bo'sh'
-    deb bilib uxlatadi (cold-start sekinligi). Bu server $PORT'da 200 qaytaradi,
-    shunda Koyeb instansiyani doim 'sog'lom' deb biladi va uxlatmaydi.
+    Bot long-polling bilan ishlaydi va hech qanday port tinglamaydi. fly.toml'dagi
+    http_service esa $PORT'da health-check kutadi. Bu server $PORT'da 200 qaytaradi,
+    shunda fly.io mashinani doim 'sog'lom' deb biladi.
     """
     global _health_runner
     from aiohttp import web  # aiogram 2.x allaqachon aiohttp'ga tayanadi, qo'shimcha kerak emas
@@ -650,7 +649,7 @@ async def _start_health_server():
     _health_runner = web.AppRunner(app)
     await _health_runner.setup()
     await web.TCPSite(_health_runner, "0.0.0.0", port).start()
-    logging.info("✅ Health-server ishga tushdi: 0.0.0.0:%s (Koyeb uxlatmasligi uchun)", port)
+    logging.info("✅ Health-server ishga tushdi: 0.0.0.0:%s (fly.io health-check)", port)
 
 
 async def on_startup(dispatcher):
@@ -715,7 +714,7 @@ if __name__ == "__main__":
 
     print("🚀 Bot polling boshlanmoqda...")
     if not BOT_TOKEN:
-        print("❌ FATAL: BOT_TOKEN topilmadi! Iltimos .env faylni yoki Koyeb env'larini tekshiring.")
+        print("❌ FATAL: BOT_TOKEN topilmadi! Iltimos .env faylni yoki fly.io secrets'ni tekshiring.")
         exit(1)
 
     # MUHIM: skip_updates=False (eski default emas) — agar bot restart bo'lsa,

@@ -347,20 +347,19 @@ EMPLOYEE_GUIDE_TEXT = (
     "📖 <b>BOTDAN QANDAY FOYDALANAMAN?</b>\n\n"
     "🟢 <b>Ishga kelganingizda:</b>\n"
     "1. «🟢 Ishga keldim» tugmasini bosing\n"
-    "2. 📎 (skrepka) belgisini bosing\n"
-    "3. <b>Location</b> ni tanlang\n"
-    "4. <b>«Share My Live Location»</b> ni bosing (oddiy emas, JONLI!)\n"
-    "5. 15 daqiqa qilib yuboring — tamom ✅\n\n"
-    "🔴 <b>Ketayotganingizda:</b> «🔴 Ketyapman» → yana jonli lokatsiya.\n\n"
+    "2. Pastda chiqqan «📍 Lokatsiyani yuborish» tugmasini bosing — tamom ✅\n"
+    "(Tugma chiqmasa: 📎 → Location → hozirgi joylashuvni yuboring.)\n\n"
+    "🔴 <b>Ketayotganingizda:</b> «🔴 Ketyapman» → yana lokatsiya yuboring.\n\n"
     "🌙 <b>Dam:</b> bugun dam olsangiz — shu tugmani bosing, admin biladi.\n\n"
     "🟠 <b>O'qishga ketdim:</b> o'qishga ketayotganda bosing, "
-    "qaytganda «O'qishdan qaytdim»ni bosing.\n\n"
+    "qaytganda «O'qishdan qaytdim»ni bosing. O'qishda o'tgan vaqt ish soatiga "
+    "kirmaydi — hisob qaytganingizdan davom etadi.\n\n"
     "💰 <b>Maoshim:</b> maoshingiz va olgan pullaringizni ko'rasiz.\n\n"
     "📊 <b>Statistika:</b> qaysi kunlari necha soat ishlaganingiz.\n\n"
     "🆘 <b>Yordam:</b> muammo bo'lsa — shu yerdan adminga yozasiz.\n\n"
     "❗ <b>Muhim:</b>\n"
     "• Lokatsiya faqat ish joyida turib yuborilsa qabul qilinadi\n"
-    "• Kechiksangiz — bot sabab so'raydi, yozib yuboring\n"
+    "• Kechiksangiz — admin xabardor bo'ladi\n"
     "• Kelmasangiz — bot o'zi yozadi, sababingizni yozing, admin ko'radi"
 )
 
@@ -417,6 +416,31 @@ def pay_type_emoji(pay_type: Optional[str]) -> str:
     pt = (pay_type or "monthly").lower()
     icon, _, _ = PAY_TYPE_LABELS.get(pt, PAY_TYPE_LABELS["monthly"])
     return icon
+
+
+def format_hours_minutes(total_hours: Any) -> str:
+    total_minutes = int(round(float(total_hours or 0.0) * 60))
+    return f"{total_minutes // 60} soat {total_minutes % 60} daqiqa"
+
+
+def build_departure_summary_lines(result: Optional[Dict[str, Any]]) -> str:
+    """Ketish xabari uchun: o'qish vaqti (hisoblanmagan) va soatlik pul hisobi.
+
+    result — database.finalize_work_session() natijasi. Soatlik narx
+    belgilanmagan bo'lsa, pul qatorlari chiqmaydi.
+    """
+    if not result:
+        return ""
+    lines = []
+    paused_hours = float(result.get("paused_hours") or 0.0)
+    if paused_hours > 0:
+        lines.append(f"🎓 O'qishda: {format_hours_minutes(paused_hours)} (hisoblanmadi)")
+    hourly_rate = float(result.get("hourly_rate") or 0.0)
+    if hourly_rate > 0:
+        earned = float(result.get("earned_amount") or 0.0)
+        lines.append(f"💵 Soatlik narxi: {hourly_rate:,.0f} so'm")
+        lines.append(f"💰 Bugungi kunlik jami: <b>{earned:,.0f}</b> so'm")
+    return ("\n" + "\n".join(lines)) if lines else ""
 
 
 def format_number(num) -> str:

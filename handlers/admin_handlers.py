@@ -43,6 +43,7 @@ from keyboards import (
 from menu_overrides import get_admin_main_menu
 from handlers.admin_extensions import (
     apply_worker_action_for_admin,
+    format_hourly_rate,
     get_worker_action_button_specs,
 )
 import pytz
@@ -600,31 +601,35 @@ _GUIDE_ADMIN = (
     "(masalan telefonsiz xodim uchun).\n\n"
     "💰 <b>Maoshlar</b> — xodimga <b>maosh</b> yoki <b>avans</b> to'lov qo'shasiz, "
     "tarixini ko'rasiz.\n\n"
+    "⏱ <b>Soatlik narxlar</b> — har bir xodimning 1 soati necha so'mligini kiritasiz. "
+    "Xodim ketganda xabarda «ishlagan soat × narx = bugungi kunlik» chiqadi.\n\n"
     "📊 <b>Kunlik / Oylik hisobot</b> — kim qachon kelgan-ketgan, necha soat ishlagan.\n\n"
     "📞 <b>Admin aloqasi</b> — xodimlar «Yordam»da ko'radigan manzilingiz.\n\n"
     "📢 <b>Bildirishnoma guruhi</b> — kelish/ketish xabarlari boradigan Telegram guruh.\n\n"
     "💡 <b>Misol:</b> Yangi odam ishga kirmoqchi → u botga /start bosib «Xodim bo'lish»ni "
-    "tanlaydi → sizga <b>ariza</b> keladi → «Qabul qilish» bosasiz → ism, filial, ish vaqtini "
-    "kiritasiz → tamom."
+    "tanlaydi → <b>katta adminga</b> ariza keladi → «Qabul qilish» bosadi → ism, filial, ish vaqtini "
+    "kiritadi → tamom. (Filial admini xodimni «Xodim qo'shish» orqali o'zi qo'sha oladi.)"
 )
 
 _GUIDE_EMPLOYEE = (
     "👷 <b>XODIM BOTNI QANDAY ISHLATADI?</b>\n\n"
-    "🟢 <b>Ishga keldim</b> — tugmani bosib <b>JONLI lokatsiya</b> yuboradi "
-    "(📎 → Location → «Share Live Location»). Do'kon yonida bo'lsa qabul qilinadi.\n\n"
-    "🔴 <b>Ishdan ketdim</b> — xuddi shunday, jonli lokatsiya bilan.\n\n"
+    "🟢 <b>Ishga keldim</b> — tugmani bosib, pastdagi «📍 Lokatsiyani yuborish» "
+    "tugmasi bilan lokatsiya yuboradi. Do'kon yonida bo'lsa qabul qilinadi.\n\n"
+    "🔴 <b>Ishdan ketdim</b> — xuddi shunday, lokatsiya bilan.\n\n"
     "🌙 <b>Dam</b> — bugun dam olayotganini bildiradi.\n\n"
-    "🎓 <b>O'qishga ketdim</b> — o'qishga ketganini bildiradi.\n\n"
+    "🎓 <b>O'qishga ketdim / qaytdim</b> — o'qishda o'tgan vaqt ish soatiga kirmaydi.\n\n"
     "💰 <b>Maoshim</b> — o'z maoshi va olgan to'lovlarini ko'radi.\n\n"
     "🆘 <b>Yordam</b> — siz (admin) bilan bog'lanish.\n\n"
-    "💡 Agar xodim <b>kechiksa</b> yoki <b>kelmasa</b>, bot undan sababini so'raydi → "
-    "sabab sizga va guruhga keladi."
+    "💡 Agar xodim <b>kelmasa</b>, bot undan sababini so'raydi → sabab sizga va guruhga keladi. "
+    "<b>Kech qolganlar</b> ro'yxati har kuni 09:30 da keladi."
 )
 
 _GUIDE_FAQ = (
     "❓ <b>TEZ-TEZ SO'RALADIGAN SAVOLLAR</b>\n\n"
     "❔ <b>Xodim «keldim» bosdi, lekin lokatsiya qabul bo'lmadi?</b>\n"
-    "→ Do'kondan uzoqda yoki <b>oddiy</b> lokatsiya yuborgan. <b>Jonli</b> lokatsiya kerak.\n\n"
+    "→ Do'kondan uzoqda turib yuborgan yoki GPS aniq emas. Do'kon ichida GPS'ni yoqib, qayta yuborsin.\n\n"
+    "❔ <b>Xodimning soatlik narxini qanday kiritaman?</b>\n"
+    "→ «⏱ Soatlik narxlar» → xodim → «➕ Kiritish» (yoki xodim kartasidagi «💵 Soatlik narx»).\n\n"
     "❔ <b>Telefoni yo'q xodimni qanday belgilayman?</b>\n"
     "→ «✅ Davomat» → xodimni tanlab «keldi/ketdi».\n\n"
     "❔ <b>Xodimga avans bersam?</b>\n"
@@ -2629,6 +2634,13 @@ async def worker_menu(callback_query: types.CallbackQuery):
         types.InlineKeyboardButton("📋 Ko'rish", callback_data=f"view_{worker_id}", style="primary"),
         types.InlineKeyboardButton("✏️ Tahrirlash", callback_data=f"update_{worker_id}", style="primary"),
     )
+    keyboard.add(
+        types.InlineKeyboardButton(
+            f"💵 Soatlik narx: {format_hourly_rate(worker.get('hourly_rate'))}",
+            callback_data=f"hrate:menu:{worker_id}:w",
+            style="primary",
+        )
+    )
     if callback_query.from_user.id in SUPERADMINS:
         branch_button_text = "🏢 Filialni o'zgartirish"
         if not worker.get("branch_id"):
@@ -2834,7 +2846,8 @@ async def view_worker(callback_query: types.CallbackQuery):
         f"👤 <b>{html.escape(str(worker['full_name']))}</b>\n\n"
         f"🏢 Filial: {html.escape(str(worker['branch_name'] or 'Belgilanmagan'))}\n"
         f"📱 Telegram: {('@' + worker['username']) if worker['username'] else ('ulangan' if worker['tg_id'] else 'telefonsiz')}\n\n"
-        f"💼 {format_pay_status(pay_type, pay_amount, monthly_salary)}\n\n"
+        f"💼 {format_pay_status(pay_type, pay_amount, monthly_salary)}\n"
+        f"💵 Soatlik narx: {format_hourly_rate(worker['hourly_rate'])}\n\n"
         f"🕒 Kunlik ish soati: {daily_hrs if daily_hrs > 0 else 'Belgilanmagan'} soat\n"
         f"⏰ Ish vaqti: {w_start} - {w_end}\n"
         f"📅 Qo'shilgan sana: {added_date}"

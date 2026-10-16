@@ -11,7 +11,7 @@ import html
 from ai_helpers import process_employee_request
 from employee_menu import get_employee_main_menu
 from loader import dp, bot
-from config import ADMINS, SUPERADMINS, ALLOWED_LAT, ALLOWED_LON, LATE_EARLY_TOLERANCE_MIN, ADMIN_CONTACT_TEXT
+from config import ADMINS, SUPERADMINS, LATE_EARLY_TOLERANCE_MIN, ADMIN_CONTACT_TEXT
 
 # --- TUZATISH: To'g'ri import usuli ---
 # Endi butun 'database' modulini 'db' nomi bilan chaqiramiz
@@ -19,6 +19,7 @@ import database as db
 from shared import (
     EMPLOYEE_GUIDE_TEXT,
     build_admin_home_payload,
+    build_departure_summary_lines,
     build_absence_review_keyboard,
     pending_requests,
     describe_admin_action_result,
@@ -110,40 +111,6 @@ def _fmt_user_day_status(day_status: dict | None) -> list[str]:
             text += " → hali qaytmagan"
         lines.append(text)
     return lines
-
-
-# user_handlers.py faylidagi eski is_late funksiyasi o'rniga buni qo'ying
-
-def is_late(start_str: str, tolerance_min: int) -> tuple[bool, int]:
-    """
-    Xodimning belgilangan vaqtdan kechikkan yoki kechikmaganini tekshiradi.
-    Endi faqat ishga kelish vaqtiga bog'liq.
-    """
-    # Agar xodim uchun ishga kelish vaqti umuman belgilanmagan bo'lsa, u kechikkan hisoblanmaydi.
-    if not start_str:
-        return (False, 0)
-
-    try:
-        today = datetime.date.today()
-        h, m = map(int, start_str.split(":"))
-
-        # Aniq vaqt zonalari bilan ishlash xatoliklarning oldini oladi
-        planned_arrival = tashkent_tz.localize(datetime.datetime.combine(today, datetime.time(h, m)))
-        allowed_arrival = planned_arrival + datetime.timedelta(minutes=tolerance_min)
-
-        now_tashkent = datetime.datetime.now(tashkent_tz)
-
-        # Hozirgi vaqt ruxsat etilgan vaqtdan keyinmi?
-        diff_seconds = (now_tashkent - allowed_arrival).total_seconds()
-
-        if diff_seconds > 0:
-            diff_min = int(diff_seconds // 60)
-            return (True, diff_min)
-
-        return (False, 0)
-    except (ValueError, TypeError):
-        # Agar start_str noto'g'ri formatda bo'lsa (masalan: None yoki bo'sh satr)
-        return (False, 0)
 
 
 def next_day_message() -> str:
@@ -244,21 +211,38 @@ async def render_employee_menu(chat_id: int, user_id: int, preferred_message_id:
     await bot.send_message(chat_id, text, reply_markup=kb)
 
 
-def _build_live_location_prompt_keyboard() -> InlineKeyboardMarkup:
+SEND_LOCATION_BUTTON_TEXT = "📍 Lokatsiyani yuborish"
+
+
+def _build_location_prompt_keyboard() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("⬅️ Menyuga qaytish", callback_data="empmenu:home", style="primary"))
     return kb
 
 
-def _build_live_location_prompt_text(is_departure: bool) -> str:
+def _build_send_location_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Bir bosishda hozirgi (oddiy) lokatsiyani yuboradigan pastki tugma."""
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    kb.add(types.KeyboardButton(SEND_LOCATION_BUTTON_TEXT, request_location=True))
+    return kb
+
+
+async def _drop_location_prompt(chat_id: int, prompt_msg_id: int | None):
+    """«📍 Lokatsiyani yuborish» tugmali yordamchi xabarni va klaviaturani yo'qotadi."""
+    if prompt_msg_id:
+        try:
+            await bot.delete_message(chat_id, prompt_msg_id)
+        except Exception:
+            pass
+    await clear_old_employee_reply_keyboard(chat_id)
+
+
+def _build_location_prompt_text(is_departure: bool) -> str:
     action_text = "Ishdan ketayotgan bo'lsangiz" if is_departure else "Ishxonaga kelgan bo'lsangiz"
     return (
         f"{action_text}, lokatsiyangizni yuboring.\n\n"
-        "Sinov rejimida oddiy va jonli lokatsiya ham qabul qilinadi.\n\n"
-        "Qanday yuboriladi:\n"
-        "1. 📎 ni bosing\n"
-        "2. Location ni tanlang\n"
-        "3. Hozirgi joylashuvni yuboring"
+        f"Pastdagi «{SEND_LOCATION_BUTTON_TEXT}» tugmasini bosing — tamom.\n\n"
+        "Tugma ko'rinmasa: 📎 → Location → hozirgi joylashuvni yuboring."
     )
 
 
@@ -576,6 +560,9 @@ async def employee_menu_callback(callback_query: types.CallbackQuery, state: FSM
     now_dt = datetime.datetime.now(datetime.timezone.utc)
 
     if action == "home":
+        state_data = await state.get_data()
+        if state_data.get("location_prompt_msg_id"):
+            await _drop_location_prompt(callback_query.message.chat.id, state_data["location_prompt_msg_id"])
         await state.finish()
         await render_employee_menu(
             callback_query.message.chat.id,
@@ -605,11 +592,16 @@ async def employee_menu_callback(callback_query: types.CallbackQuery, state: FSM
             location_requested_at=requested_at,
         )
         await UserAttendance.waiting_for_location.set()
-        await clear_old_employee_reply_keyboard(callback_query.message.chat.id)
         await callback_query.message.edit_text(
-            _build_live_location_prompt_text(dashboard["is_working"]),
-            reply_markup=_build_live_location_prompt_keyboard(),
+            _build_location_prompt_text(dashboard["is_working"]),
+            reply_markup=_build_location_prompt_keyboard(),
         )
+        prompt_msg = await bot.send_message(
+            callback_query.message.chat.id,
+            "👇",
+            reply_markup=_build_send_location_reply_keyboard(),
+        )
+        await state.update_data(location_prompt_msg_id=prompt_msg.message_id)
         return await callback_query.answer()
 
     if action == "rest":
@@ -634,6 +626,8 @@ async def employee_menu_callback(callback_query: types.CallbackQuery, state: FSM
     if action == "study":
         await state.finish()
         if dashboard["study_active"]:
+            # O'qishda o'tgan vaqt ish soatiga kirmaydi — hisob shu daqiqadan davom etadi.
+            await db.close_study_pause(worker["id"], today, now_dt)
             await db.update_worker_day_status(
                 worker["id"],
                 today,
@@ -672,11 +666,20 @@ async def employee_menu_callback(callback_query: types.CallbackQuery, state: FSM
         return await callback_query.answer()
 
     if action == "help":
+        await state.finish()
+        contact = await _admin_contact_display()
         help_text = (
-            "Bot ish vaqtini kuzatish, kelish-ketish nazorati va maosh ma'lumotlarini ko'rsatadi.\n\n"
-            "Muammo yoki taklif bo'lsa, adminga yozishingiz mumkin."
+            "🆘 <b>Yordam</b>\n\n"
+            f"Admin bilan bog'lanish: {html.escape(contact)}\n\n"
+            "Yoki muammo/taklifingizni shu yerga <b>matn</b> qilib yozing — "
+            "xabaringiz adminga yetkaziladi."
         )
-        await callback_query.message.edit_text(help_text, reply_markup=_build_employee_back_keyboard())
+        await callback_query.message.edit_text(
+            help_text,
+            reply_markup=_build_employee_back_keyboard(),
+            parse_mode="HTML",
+        )
+        await HelpState.waiting_for_feedback.set()
         return await callback_query.answer()
 
     if action == "mystats":
@@ -753,16 +756,13 @@ async def loc_handler(message: types.Message, state: FSMContext):
         return
 
     loc = message.location
-    dist = db.calculate_distance(loc.latitude, loc.longitude,
-                                 ALLOWED_LAT, ALLOWED_LON)
 
     data = await state.get_data()
     dep_mode = data.get("departure_mode", False)
     fri = data.get("is_friday", False)
     sess_id = data.get("session_id")
-    forced = data.get("forced_early_departure", False)
-    early_rs = data.get("early_reason", "")
     menu_message_id = data.get("menu_message_id")
+    await _drop_location_prompt(message.chat.id, data.get("location_prompt_msg_id"))
     requested_at_raw = data.get("location_requested_at")
     requested_at = None
     if requested_at_raw:
@@ -789,9 +789,6 @@ async def loc_handler(message: types.Message, state: FSMContext):
     wid = worker_record["id"]
     wname = worker_record["full_name"]
     d_hrs = worker_record.get("daily_work_hours")
-    w_start = worker_record.get("work_start")
-    w_end = worker_record.get("work_end")
-    is_free_mode = (not d_hrs or d_hrs <= 0 or not w_start or not w_end)
 
     branch_resolution = await db.resolve_branch_for_location(
         loc.latitude,
@@ -817,7 +814,7 @@ async def loc_handler(message: types.Message, state: FSMContext):
         return
 
     now_dt_aware = datetime.datetime.now(datetime.timezone.utc)
-    today_date = now_dt_aware.date()
+    today_date = datetime.date.today()  # Toshkent sanasi (config.py TZ ni o'rnatadi)
     branch_name = matched_branch["name"]
 
     async with db.pool.acquire() as conn:
@@ -833,6 +830,9 @@ async def loc_handler(message: types.Message, state: FSMContext):
                     late_reason         = NULL,
                     is_friday           = EXCLUDED.is_friday,
                     session_daily_hours = EXCLUDED.session_daily_hours,
+                    study_paused_hours  = 0,
+                    hourly_rate         = NULL,
+                    earned_amount       = NULL,
                     branch_id           = COALESCE(work_sessions.branch_id, EXCLUDED.branch_id)
                 """,
                 wid,
@@ -915,21 +915,16 @@ async def loc_handler(message: types.Message, state: FSMContext):
         session_branch_id = session_record.get("branch_id") or effective_branch_id
         session_branch = await db.get_branch_by_id(session_branch_id)
         session_branch_name = session_branch["name"] if session_branch else branch_name
-        total_f = (now_dt_aware - arr_dt).total_seconds() / 3600.0
 
+        # O'qishda turib ketayotgan bo'lsa — o'qish vaqti ham hisobdan chiqadi.
+        await db.close_study_pause(wid, today_date, now_dt_aware)
         await conn.execute(
-            """
-            UPDATE work_sessions
-            SET departure_time = $1,
-                total_hours = $2,
-                branch_id = COALESCE(branch_id, $4)
-            WHERE id = $3
-            """,
-            now_dt_aware,
-            total_f,
+            "UPDATE work_sessions SET branch_id = COALESCE(branch_id, $2) WHERE id = $1",
             sess_id,
             session_branch_id,
         )
+        finalized = await db.finalize_work_session(sess_id, now_dt_aware)
+        total_f = finalized["total_hours"] if finalized else (now_dt_aware - arr_dt).total_seconds() / 3600.0
 
         await db.update_worker_day_status(
             wid,
@@ -949,9 +944,10 @@ async def loc_handler(message: types.Message, state: FSMContext):
         )
 
         admin_txt = (
-            f"🔴 {wname} ishxonadan KETDI.\n"
+            f"🔴 {html.escape(wname)} ishxonadan KETDI.\n"
             f"Kelish: {arr_dt.astimezone(tashkent_tz).strftime('%H:%M:%S')}, Ketish: {now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')}\n"
             f"Ishlagan: {format_hours(total_f)}"
+            f"{build_departure_summary_lines(finalized)}"
         )
         await notify_admins_and_group(admin_txt, worker_id=wid)
 
@@ -980,172 +976,16 @@ async def loc_handler(message: types.Message, state: FSMContext):
             await render_employee_menu(message.chat.id, message.from_user.id, preferred_message_id=menu_message_id)
         return
 
-    async with db.pool.acquire() as conn:
-        worker_record = await conn.fetchrow("""
-                                            SELECT id, full_name, daily_work_hours, work_start, work_end
-                                            FROM workers
-                                            WHERE tg_id = $1
-                                            """, message.from_user.id)
-
-        if not worker_record:
-            await message.reply("Xatolik: Siz ro'yxatda topilmadingiz.")
-            await state.finish()
-            return
-
-        wid, wname, d_hrs, w_start, w_end = worker_record.values()
-        is_free_mode = (not d_hrs or d_hrs <= 0 or not w_start or not w_end)
-
-
-        now_dt_aware = datetime.datetime.now(datetime.timezone.utc)
-        today_date = now_dt_aware.date()
-
-        if not dep_mode:  # --- ISHGA KELISH ---
-            await conn.execute("""
-                               INSERT INTO work_sessions (user_id, date, arrival_time, is_friday, session_daily_hours)
-                               VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, date) DO NOTHING;
-                               """, wid, today_date, now_dt_aware, fri, d_hrs or 0.0)
-
-            sess_id = await conn.fetchval(
-                "SELECT id FROM work_sessions WHERE user_id = $1 AND date = $2",
-                wid, today_date
-            )
-
-            await db.update_worker_day_status(
-                wid,
-                today_date,
-                day_state="working",
-                clock_in_at=now_dt_aware,
-                clock_out_at=None,
-                rest_marked=False,
-                study_active=False,
-                last_source="worker",
-            )
-            await db.log_worker_activity(
-                wid,
-                "clock_in",
-                "Xodim ishga keldi",
-                message.from_user.id,
-                "worker",
-                today_date,
-            )
-
-            late, late_min = is_late(w_start.strftime('%H:%M') if w_start else None, LATE_EARLY_TOLERANCE_MIN)
-            if late:
-                await notify_admins_and_group(f"⚠️ {wname} ishga {late_min} daqiqa kech keldi.", worker_id=wid)
-                await message.reply(
-                    "Ishga kech keldingiz, iltimos, sababini yozing.",
-                    reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-                )
-                await LateArrival.waiting_for_reason.set()
-                await state.update_data(session_id=sess_id)
-                return
-
-            await notify_admins_and_group(
-                f"✅ {wname} ishga KELDI. ({now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')})",
-                worker_id=wid,
-            )
-            await message.reply(
-                f"Kelishingiz qayd qilindi. ({now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')})",
-                reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-            )
-            await state.finish()
-            await clear_old_employee_reply_keyboard(message.chat.id)
-            if menu_message_id:
-                await render_employee_menu(message.chat.id, message.from_user.id, preferred_message_id=menu_message_id)
-            return
-
-        else:  # --- ISHDAN KETISH ---
-            if sess_id is None:
-                # Agar state'da sessiya bo'lmasa, bazadan qidirib ko'ramiz
-                sess_id = await conn.fetchval(
-                    "SELECT id FROM work_sessions WHERE user_id = $1 AND date = $2 AND departure_time IS NULL",
-                    wid, today_date
-                )
-                if not sess_id:
-                    await message.reply("Xatolik: bugun uchun aktiv ish sessiyangiz topilmadi.")
-                    await state.finish()
-                    return
-
-            session_record = await conn.fetchrow(
-                "SELECT arrival_time, session_daily_hours FROM work_sessions WHERE id = $1",
-                sess_id
-            )
-
-            if not session_record:
-                await message.reply("Xatolik: sessiya ma'lumotlari topilmadi.")
-                await state.finish()
-                return
-
-            arr_dt = session_record['arrival_time']
-            if not arr_dt:
-                await message.reply("Xatolik: kelish vaqti topilmadi.")
-                await state.finish()
-                return
-
-            sess_req = session_record['session_daily_hours']
-            total_f = (now_dt_aware - arr_dt).total_seconds() / 3600.0
-
-            await conn.execute(
-                "UPDATE work_sessions SET departure_time = $1, total_hours = $2 WHERE id = $3",
-                now_dt_aware, total_f, sess_id
-            )
-
-            await db.update_worker_day_status(
-                wid,
-                today_date,
-                day_state="left",
-                clock_out_at=now_dt_aware,
-                study_active=False,
-                last_source="worker",
-            )
-            await db.log_worker_activity(
-                wid,
-                "clock_out",
-                "Xodim ishdan ketdi",
-                message.from_user.id,
-                "worker",
-                today_date,
-            )
-
-            early_msg = ""
-            if not is_free_mode and sess_req and float(sess_req) > 0:
-                limit = arr_dt + datetime.timedelta(hours=float(sess_req)) - datetime.timedelta(
-                    minutes=LATE_EARLY_TOLERANCE_MIN)
-                if now_dt_aware < limit:
-                    delta = int((limit - now_dt_aware).total_seconds() // 60)
-                    early_msg = f"\n🟠 {delta} daqiqa erta ketdi"
-
-            admin_txt = (
-                f"🔚 {wname} ishxonadan KETDI.\n"
-                f"Kelish: {arr_dt.astimezone(tashkent_tz).strftime('%H:%M:%S')}, Ketish: {now_dt_aware.astimezone(tashkent_tz).strftime('%H:%M:%S')}\n"
-                f"Ishlagan: {format_hours(total_f)}{early_msg}"
-            )
-            if forced and early_rs:
-                admin_txt += f"\nSabab: {early_rs}"
-
-            await notify_admins_and_group(admin_txt, worker_id=wid)
-
-            await conn.execute(
-                "INSERT INTO attendance (user_id, name, latitude, longitude, distance, message, reason) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                wid, wname, loc.latitude, loc.longitude, dist, "Ketish lokatsiya", early_rs if early_msg else ""
-            )
-
-            await message.reply(
-                f"Ketishingiz qayd qilindi. {format_hours(total_f)} ishladingiz.\n{next_day_message()}",
-                reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-            )
-            await state.finish()
-            await clear_old_employee_reply_keyboard(message.chat.id)
-            if menu_message_id:
-                await render_employee_menu(message.chat.id, message.from_user.id, preferred_message_id=menu_message_id)
-
 
 # ------------- lokatsiya o‘rniga matn yuborsa --------------------
 @dp.message_handler(state=UserAttendance.waiting_for_location,
                     content_types=[types.ContentType.ANY])
 async def only_loc(message: types.Message):
-    # Bu handlerda baza bilan ishlanmaydi, o'zgarmaydi
-    await message.answer("Jonli lokatsiya yuboring: 📎 -> Location -> Share My Live Location.")
+    await message.answer(
+        f"Lokatsiya yuboring: pastdagi «{SEND_LOCATION_BUTTON_TEXT}» tugmasini bosing "
+        "(yoki 📎 → Location → hozirgi joylashuv).",
+        reply_markup=_build_send_location_reply_keyboard(),
+    )
 
 
 # =================================================================
@@ -1321,14 +1161,15 @@ async def process_help_feedback(message: types.Message, state: FSMContext):
         return
 
     user_id = message.from_user.id
-    user_name = message.from_user.full_name
-    to_admins = (
-        f"🆘 <b>Yordam so'rovi</b>\n\n"
-        f"👤 Kimdan: <b>{html.escape(user_name) if user_name else '—'}</b>\n"
-        f"📝 Xabar: <i>«{html.escape(feedback_text)}»</i>"
-    )
     worker_record = await db.get_worker_by_tg_id(user_id)
     worker_id = worker_record.get("id") if worker_record else None
+    user_name = (worker_record or {}).get("full_name") or message.from_user.full_name
+    username = f" (@{message.from_user.username})" if message.from_user.username else ""
+    to_admins = (
+        f"🆘 <b>Yordam so'rovi</b>\n\n"
+        f"👤 Kimdan: <b>{html.escape(user_name) if user_name else '—'}</b>{html.escape(username)}\n"
+        f"📝 Xabar: <i>«{html.escape(feedback_text)}»</i>"
+    )
 
     if worker_id:
         await notify_admins(to_admins, worker_id=worker_id)
@@ -1336,10 +1177,12 @@ async def process_help_feedback(message: types.Message, state: FSMContext):
         await notify_selected_admins(SUPERADMINS, to_admins)
 
     await message.reply(
-        f"Xabaringiz adminga yuborildi. Tez orada javob kuting.\n{await _admin_contact_display()}",
+        f"✅ Xabaringiz adminga yuborildi. Tez orada javob kuting.\n{html.escape(await _admin_contact_display())}",
         reply_markup=types.ReplyKeyboardRemove()
     )
     await state.finish()
+    if worker_id:
+        await render_employee_menu(message.chat.id, user_id)
 
 
 @dp.message_handler(state=HelpState.waiting_for_feedback, content_types=[types.ContentType.ANY])

@@ -53,9 +53,12 @@ Asosiylari (to'liq ro'yxat `.env.example`da):
 
 ## Deploy
 
-`render.yaml` — Render.com blueprint: bot (Docker web-service) + PostgreSQL + Redis.
-Sirlar (`BOT_TOKEN`, `GEMINI_API_KEYS`, ...) Render dashboard'da `sync: false` orqali
-qo'lda kiritiladi — repozitoriyga yozilmaydi.
+Bot **fly.io**'da (pay-as-you-go) `Dockerfile` orqali ishlaydi, baza — **Neon PostgreSQL**.
+Sirlar (`BOT_TOKEN`, `DATABASE_URL`, `GEMINI_API_KEYS`, ...) `fly secrets set` orqali
+kiritiladi — repozitoriyga yozilmaydi. Health-check uchun bot `$PORT`'da kichik HTTP
+server ochadi. Vaqt zonasi kodda Toshkentga (UTC+5) qo'yiladi (`config.py`).
+
+(`render.yaml` — eski Render.com blueprint, hozir ishlatilmaydi.)
 
 ## Loyiha tuzilishi
 

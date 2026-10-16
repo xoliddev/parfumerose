@@ -983,7 +983,7 @@ async def list_workers_for_admin(admin_tg_id: int, order_by: str = "id") -> List
 async def list_active_workers_for_admin(admin_tg_id: int, order_by: str = "id") -> List[Dict[str, Any]]:
     order_sql = "w.id ASC" if order_by == "id" else "w.full_name ASC, w.id ASC"
     base_query = """
-        SELECT w.id, w.full_name, w.branch_id, b.name AS branch_name
+        SELECT w.id, w.full_name, w.branch_id, b.name AS branch_name, w.hourly_rate
         FROM workers w
         LEFT JOIN branches b ON b.id = w.branch_id
         WHERE w.is_active = TRUE
@@ -1123,46 +1123,147 @@ async def get_session_for_worker_on_date(worker_id: int, target_date: date) -> O
         return dict(row) if row else None
 
 
-async def get_late_employees(check_date: date, threshold_time: datetime.time) -> List[dict]:
-    """Berilgan vaqtdan kech qolgan yoki kelmagan xodimlarni qaytaradi."""
+async def set_worker_hourly_rate(worker_id: int, rate: float) -> bool:
+    """Xodimning soatlik narxini o'rnatadi (0 — o'chirish)."""
     async with pool.acquire() as conn:
-        # threshold_time ni to'liq timestamp ga aylantiramiz (taqqoslash uchun)
-        # Eslatma: Bu yerda oddiy mantiq ishlatamiz. 
-        # Agar arrival_time NULL bo'lsa -> Kelmagan
-        # Agar arrival_time > threshold_time -> Kech qolgan
-        
-        # Faol xodimlarni va ularning bugungi statusini olamiz
+        result = await conn.execute(
+            "UPDATE workers SET hourly_rate = $1 WHERE id = $2",
+            rate,
+            worker_id,
+        )
+    return result.endswith(" 1")
+
+
+async def close_study_pause(worker_id: int, work_date: date, end_dt: datetime.datetime) -> float:
+    """O'qishda o'tgan vaqtni bugungi sessiyaga "hisoblanmaydigan" vaqt sifatida qo'shadi.
+
+    O'qishdan qaytishda yoki o'qishda turib ishdan ketishda chaqiriladi —
+    study_active ni False qilishdan OLDIN. Qo'shilgan soatlarni qaytaradi.
+    """
+    day_status = await get_worker_day_status(worker_id, work_date)
+    if not day_status or not day_status.get("study_active") or not day_status.get("study_left_at"):
+        return 0.0
+    session = await get_session_for_worker_on_date(worker_id, work_date)
+    if not session or not session.get("arrival_time") or session.get("departure_time"):
+        return 0.0
+
+    # Ishga kelishdan oldingi o'qish vaqti baribir hisoblanmagan.
+    pause_start = max(day_status["study_left_at"], session["arrival_time"])
+    paused_hours = (end_dt - pause_start).total_seconds() / 3600.0
+    if paused_hours <= 0:
+        return 0.0
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE work_sessions SET study_paused_hours = COALESCE(study_paused_hours, 0) + $1 WHERE id = $2",
+            round(paused_hours, 2),
+            session["id"],
+        )
+    return paused_hours
+
+
+async def finalize_work_session(session_id: int, departure_dt: datetime.datetime) -> Optional[Dict[str, Any]]:
+    """Ish sessiyasini yopadi: sof ish soati (o'qish vaqtisiz) va kunlik pulni yozadi."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT ws.arrival_time, ws.study_paused_hours, w.hourly_rate
+            FROM work_sessions ws
+            JOIN workers w ON w.id = ws.user_id
+            WHERE ws.id = $1
+            """,
+            session_id,
+        )
+        if not row or not row["arrival_time"]:
+            return None
+
+        gross_hours = (departure_dt - row["arrival_time"]).total_seconds() / 3600.0
+        paused_hours = float(row["study_paused_hours"] or 0.0)
+        total_hours = max(0.0, gross_hours - paused_hours)
+        hourly_rate = float(row["hourly_rate"] or 0.0)
+        earned_amount = round(total_hours * hourly_rate) if hourly_rate > 0 else None
+
+        await conn.execute(
+            """
+            UPDATE work_sessions
+            SET departure_time = $1,
+                total_hours = $2,
+                hourly_rate = $3,
+                earned_amount = $4
+            WHERE id = $5
+            """,
+            departure_dt,
+            round(total_hours, 2),
+            hourly_rate or None,
+            earned_amount,
+            session_id,
+        )
+
+    return {
+        "arrival_time": row["arrival_time"],
+        "gross_hours": gross_hours,
+        "paused_hours": paused_hours,
+        "total_hours": total_hours,
+        "hourly_rate": hourly_rate,
+        "earned_amount": earned_amount,
+    }
+
+
+async def get_late_employees(
+    check_date: date,
+    now_local: datetime.datetime,
+    tolerance_min: int = 0,
+) -> List[dict]:
+    """Har bir xodimning O'Z ish boshlash vaqtiga (work_start) nisbatan kech qolgan
+    yoki hali kelmagan xodimlarni qaytaradi.
+
+    Ish vaqti belgilanmagan, bugun dam olayotgan yoki ish vaqti hali boshlanmagan
+    xodimlar ro'yxatga kirmaydi. now_local — Toshkent vaqtidagi aware datetime.
+    """
+    async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT
                 w.full_name,
                 w.tg_id,
                 w.branch_id,
+                w.work_start,
                 b.name AS branch_name,
-                ws.arrival_time
+                ws.arrival_time,
+                ds.rest_marked
             FROM workers w
             LEFT JOIN branches b ON b.id = w.branch_id
             LEFT JOIN work_sessions ws ON w.id = ws.user_id AND ws.date = $1
-            WHERE w.is_active = TRUE
+            LEFT JOIN worker_day_state_v2 ds ON ds.worker_id = w.id AND ds.work_date = $1
+            WHERE w.is_active = TRUE AND w.work_start IS NOT NULL
         """, check_date)
-        
+
         late_employees = []
         for row in rows:
+            if row['rest_marked']:
+                continue
+            allowed_dt = datetime.datetime.combine(
+                check_date, row['work_start'], tzinfo=now_local.tzinfo
+            ) + datetime.timedelta(minutes=tolerance_min)
+            if now_local < allowed_dt:
+                continue  # bu xodimning ish vaqti hali boshlanmagan
+
             arrival_time = row['arrival_time']
             is_late = False
             status = "unknown"
-            
+
             if arrival_time is None:
                 is_late = True
-                status = "kelmagan"
+                status = f"kelmagan (ish vaqti {row['work_start'].strftime('%H:%M')})"
             else:
-                # arrival_time (datetime) ni vaqtini olamiz
-                # Timezonelarni hisobga olish kerak bo'lishi mumkin, lekin hozircha oddiy taqqoslash
-                # Postgres TIMESTAMP WITH TIME ZONE qaytaradi -> Python datetime
-                arrived_at = arrival_time.time() # time object
-                if arrived_at > threshold_time:
+                arrived_local = arrival_time.astimezone(now_local.tzinfo)
+                if arrived_local > allowed_dt:
                     is_late = True
-                    status = f"kech qolgan ({arrived_at.strftime('%H:%M')})"
-            
+                    late_min = int((arrived_local - allowed_dt).total_seconds() // 60)
+                    status = (
+                        f"kech qolgan ({arrived_local.strftime('%H:%M')}, "
+                        f"ish vaqti {row['work_start'].strftime('%H:%M')}, {late_min} daq.)"
+                    )
+
             if is_late:
                 late_employees.append({
                     "full_name": row['full_name'],
@@ -1634,6 +1735,12 @@ async def ensure_attendance_v2_schema():
         await conn.execute("ALTER TABLE workers ADD COLUMN IF NOT EXISTS has_phone BOOLEAN DEFAULT TRUE")
         await conn.execute("ALTER TABLE workers ADD COLUMN IF NOT EXISTS is_student BOOLEAN DEFAULT FALSE")
         await conn.execute("ALTER TABLE workers ADD COLUMN IF NOT EXISTS last_absence_prompt_at TIMESTAMP WITH TIME ZONE")
+        # Soatlik narx (so'm/soat). 0 — belgilanmagan.
+        await conn.execute("ALTER TABLE workers ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(12, 2) DEFAULT 0.00")
+        # O'qishda o'tgan (ish soatiga kirmaydigan) vaqt va ketish paytidagi pul hisobi.
+        await conn.execute("ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS study_paused_hours NUMERIC(6, 2) DEFAULT 0.00")
+        await conn.execute("ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(12, 2)")
+        await conn.execute("ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS earned_amount NUMERIC(14, 2)")
         # salary_payments.kind — 'salary' (oddiy maosh) yoki 'advance' (avans).
         # Eski yozuvlar 'salary' deb hisoblanadi.
         await conn.execute(

@@ -11,13 +11,15 @@ from loader import dp
 from shared import (
     build_admin_home_payload,
     build_branch_selection_keyboard,
+    build_departure_summary_lines,
+    format_hours_minutes,
     dismiss_reply_keyboard,
     has_admin_operating_branch,
     format_admin_actor,
     notify_admins,
     notify_admins_and_group,
 )
-from states import AdminAddWorker
+from states import AdminAddWorker, AdminHourlyRate
 
 
 def _build_skip_keyboard() -> types.ReplyKeyboardMarkup:
@@ -292,7 +294,10 @@ async def apply_worker_action_for_admin(
                         departure_time      = NULL,
                         total_hours         = 0,
                         late_reason         = NULL,
-                        session_daily_hours = EXCLUDED.session_daily_hours
+                        session_daily_hours = EXCLUDED.session_daily_hours,
+                        study_paused_hours  = 0,
+                        hourly_rate         = NULL,
+                        earned_amount       = NULL
                     """,
                     worker_id,
                     today,
@@ -317,15 +322,10 @@ async def apply_worker_action_for_admin(
         action_text = "ishga keldi deb belgilandi"
     elif action == "out":
         session = await db.get_session_for_worker_on_date(worker_id, today)
+        finalized = None
         if session and session.get("arrival_time") and not session.get("departure_time"):
-            total_f = (now_dt - session["arrival_time"]).total_seconds() / 3600.0
-            async with db.pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE work_sessions SET departure_time = $1, total_hours = $2 WHERE id = $3",
-                    now_dt,
-                    total_f,
-                    session["id"],
-                )
+            await db.close_study_pause(worker_id, today, now_dt)
+            finalized = await db.finalize_work_session(session["id"], now_dt)
         await db.update_worker_day_status(
             worker_id,
             today,
@@ -335,10 +335,13 @@ async def apply_worker_action_for_admin(
             last_source="admin",
         )
         await db.log_worker_activity(worker_id, "manual_clock_out", "Admin ishdan ketdi deb belgiladi", actor_id, "admin", today)
-        await notify_admins_and_group(
-            f"{worker['full_name']} ishdan ketdi. ({actor_label} belgiladi)",
-            worker_id=worker_id,
-        )
+        departure_text = f"🔴 {html.escape(worker['full_name'])} ishdan ketdi. ({html.escape(actor_label)} belgiladi)"
+        if finalized:
+            departure_text += (
+                f"\nIshlagan: {format_hours_minutes(finalized['total_hours'])}"
+                f"{build_departure_summary_lines(finalized)}"
+            )
+        await notify_admins_and_group(departure_text, worker_id=worker_id)
         action_text = "ishdan ketdi deb belgilandi"
     elif action == "rest":
         await db.update_worker_day_status(
@@ -371,6 +374,7 @@ async def apply_worker_action_for_admin(
         )
         action_text = "o'qishga ketdi deb belgilandi"
     elif action == "study_return":
+        await db.close_study_pause(worker_id, today, now_dt)
         await db.update_worker_day_status(
             worker_id,
             today,
@@ -631,3 +635,226 @@ async def worker_actions_apply(callback_query: types.CallbackQuery):
         reply_markup=kb,
     )
     await callback_query.answer("Saqlandi.")
+
+
+# ===================== 💵 SOATLIK NARX (CRUD) =====================
+# Callback'lar: hrate:list:<page> | hrate:menu:<wid>:<src> | hrate:set:<wid>:<src> | hrate:del:<wid>:<src>
+# src: "w" — xodim kartasidan kelindi, "l" — soatlik narxlar ro'yxatidan.
+
+HOURLY_RATE_PAGE_SIZE = 10
+MAX_HOURLY_RATE = 10_000_000
+
+
+def format_hourly_rate(rate) -> str:
+    value = float(rate or 0)
+    return f"{value:,.0f} so'm/soat" if value > 0 else "belgilanmagan"
+
+
+def _hourly_rate_back_callback(worker_id: int, source: str) -> str:
+    return f"worker_{worker_id}" if source == "w" else "hrate:list:0"
+
+
+def _build_hourly_rate_menu(worker: dict, source: str) -> tuple[str, types.InlineKeyboardMarkup]:
+    worker_id = worker["id"]
+    rate = float(worker.get("hourly_rate") or 0)
+    text = (
+        "💵 <b>Soatlik narx</b>\n\n"
+        f"👤 {html.escape(worker['full_name'])}\n"
+        f"Joriy narx: <b>{format_hourly_rate(rate)}</b>\n\n"
+        "Xodim «Ketyapman»ni bosganda adminlar va guruhga xabar boradi: "
+        "ishlagan soati × soatlik narx = bugungi kunlik summa. "
+        "O'qishda o'tgan vaqt hisoblanmaydi."
+    )
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton(
+            "✏️ O'zgartirish" if rate > 0 else "➕ Kiritish",
+            callback_data=f"hrate:set:{worker_id}:{source}",
+            style="success",
+        )
+    )
+    if rate > 0:
+        kb.add(
+            types.InlineKeyboardButton(
+                "🗑 O'chirish", callback_data=f"hrate:del:{worker_id}:{source}", style="danger"
+            )
+        )
+    kb.add(
+        types.InlineKeyboardButton(
+            "⬅️ Orqaga", callback_data=_hourly_rate_back_callback(worker_id, source), style="primary"
+        )
+    )
+    return text, kb
+
+
+def _parse_hourly_rate_callback(data: str) -> tuple[int, str] | None:
+    parts = data.split(":")
+    if len(parts) != 4 or not parts[2].isdigit():
+        return None
+    return int(parts[2]), ("w" if parts[3] == "w" else "l")
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("hrate:list:"), state="*")
+async def hourly_rate_list(callback_query: types.CallbackQuery, state: FSMContext):
+    admin_id = callback_query.from_user.id
+    if admin_id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    if not await has_admin_operating_branch(admin_id):
+        home_text, home_markup = await build_admin_home_payload(admin_id)
+        await callback_query.message.edit_text(home_text, reply_markup=home_markup)
+        return await callback_query.answer("Avval filialni tanlang.", show_alert=True)
+    await state.finish()
+
+    try:
+        page = max(0, int(callback_query.data.split(":")[2]))
+    except (IndexError, ValueError):
+        page = 0
+
+    workers = await db.list_active_workers_for_admin(admin_id, order_by="name")
+    total_pages = max(1, (len(workers) + HOURLY_RATE_PAGE_SIZE - 1) // HOURLY_RATE_PAGE_SIZE)
+    page = min(page, total_pages - 1)
+    chunk = workers[page * HOURLY_RATE_PAGE_SIZE:(page + 1) * HOURLY_RATE_PAGE_SIZE]
+
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for worker in chunk:
+        rate = float(worker.get("hourly_rate") or 0)
+        rate_label = f"{rate:,.0f}" if rate > 0 else "—"
+        kb.add(
+            types.InlineKeyboardButton(
+                f"{worker['full_name']} · {rate_label}",
+                callback_data=f"hrate:menu:{worker['id']}:l",
+                style="primary",
+            )
+        )
+    nav = []
+    if page > 0:
+        nav.append(types.InlineKeyboardButton("« Oldingi", callback_data=f"hrate:list:{page - 1}", style="primary"))
+    if page + 1 < total_pages:
+        nav.append(types.InlineKeyboardButton("Keyingi »", callback_data=f"hrate:list:{page + 1}", style="primary"))
+    if nav:
+        kb.row(*nav)
+    kb.add(types.InlineKeyboardButton("⬅️ Orqaga", callback_data="back_admin_main", style="primary"))
+
+    with_rate = sum(1 for w in workers if float(w.get("hourly_rate") or 0) > 0)
+    text = (
+        "⏱ <b>Soatlik narxlar</b>\n\n"
+        f"Xodimlar: {len(workers)} ta, narxi kiritilgan: {with_rate} ta.\n"
+        "Narxni kiritish, o'zgartirish yoki o'chirish uchun xodimni tanlang "
+        "(raqam — so'm/soat)."
+    )
+    if not workers:
+        text = "⏱ <b>Soatlik narxlar</b>\n\nBu filialda faol xodim yo'q."
+    await callback_query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("hrate:menu:"), state="*")
+async def hourly_rate_menu(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    parsed = _parse_hourly_rate_callback(callback_query.data)
+    if not parsed:
+        return await callback_query.answer("Noto'g'ri amal.", show_alert=True)
+    worker_id, source = parsed
+    if not await _ensure_admin_worker_access(callback_query.from_user.id, worker_id):
+        return await callback_query.answer("Bu xodim sizning filialingizga tegishli emas.", show_alert=True)
+    worker = await db.get_worker_by_id(worker_id)
+    if not worker:
+        return await callback_query.answer("Xodim topilmadi.", show_alert=True)
+
+    await state.finish()
+    text, kb = _build_hourly_rate_menu(worker, source)
+    await callback_query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await callback_query.answer()
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("hrate:set:"), state="*")
+async def hourly_rate_set_start(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    parsed = _parse_hourly_rate_callback(callback_query.data)
+    if not parsed:
+        return await callback_query.answer("Noto'g'ri amal.", show_alert=True)
+    worker_id, source = parsed
+    if not await _ensure_admin_worker_access(callback_query.from_user.id, worker_id):
+        return await callback_query.answer("Bu xodim sizning filialingizga tegishli emas.", show_alert=True)
+    worker = await db.get_worker_by_id(worker_id)
+    if not worker:
+        return await callback_query.answer("Xodim topilmadi.", show_alert=True)
+
+    await state.finish()
+    await AdminHourlyRate.waiting_for_amount.set()
+    await state.update_data(hrate_worker_id=worker_id, hrate_source=source)
+    kb = types.InlineKeyboardMarkup().add(
+        types.InlineKeyboardButton(
+            "❌ Bekor qilish", callback_data=f"hrate:menu:{worker_id}:{source}", style="danger"
+        )
+    )
+    await callback_query.message.edit_text(
+        f"💵 <b>{html.escape(worker['full_name'])}</b> uchun soatlik narxni kiriting (so'mda).\n\n"
+        f"Joriy narx: {format_hourly_rate(worker.get('hourly_rate'))}\n"
+        "Masalan: <code>20000</code>",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+    await callback_query.answer()
+
+
+@dp.message_handler(state=AdminHourlyRate.waiting_for_amount, content_types=types.ContentTypes.TEXT)
+async def hourly_rate_set_amount(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMINS:
+        return await state.finish()
+
+    raw_text = (message.text or "").strip()
+    if raw_text.lower() in {"/cancel", "bekor", "bekor qilish"}:
+        await state.finish()
+        return await message.reply("Bekor qilindi.")
+
+    data = await state.get_data()
+    worker_id = data.get("hrate_worker_id")
+    source = data.get("hrate_source", "l")
+    if not worker_id:
+        await state.finish()
+        return await message.reply("Xatolik: xodim tanlanmagan. Qaytadan urinib ko'ring.")
+
+    cleaned = raw_text.lower().replace(" ", "").replace(",", "").replace("so'm", "").replace("som", "")
+    try:
+        rate = float(cleaned)
+    except ValueError:
+        return await message.reply("Narxni raqam bilan kiriting. Masalan: 20000")
+    if rate <= 0 or rate > MAX_HOURLY_RATE:
+        return await message.reply(f"Narx 1 dan {MAX_HOURLY_RATE:,} so'mgacha bo'lishi kerak.")
+
+    if not await db.admin_can_access_worker(message.from_user.id, int(worker_id)):
+        await state.finish()
+        return await message.reply("Bu xodim sizning filialingizga tegishli emas.")
+
+    await db.set_worker_hourly_rate(int(worker_id), rate)
+    await state.finish()
+
+    worker = await db.get_worker_by_id(int(worker_id))
+    if not worker:
+        return await message.reply("Xodim topilmadi.")
+    text, kb = _build_hourly_rate_menu(worker, source)
+    await message.reply(f"✅ Saqlandi: {format_hourly_rate(rate)}\n\n{text}", reply_markup=kb, parse_mode="HTML")
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("hrate:del:"), state="*")
+async def hourly_rate_delete(callback_query: types.CallbackQuery, state: FSMContext):
+    if callback_query.from_user.id not in ADMINS:
+        return await callback_query.answer("Ruxsat yo'q", show_alert=True)
+    parsed = _parse_hourly_rate_callback(callback_query.data)
+    if not parsed:
+        return await callback_query.answer("Noto'g'ri amal.", show_alert=True)
+    worker_id, source = parsed
+    if not await _ensure_admin_worker_access(callback_query.from_user.id, worker_id):
+        return await callback_query.answer("Bu xodim sizning filialingizga tegishli emas.", show_alert=True)
+
+    await state.finish()
+    await db.set_worker_hourly_rate(worker_id, 0)
+    worker = await db.get_worker_by_id(worker_id)
+    if not worker:
+        return await callback_query.answer("Xodim topilmadi.", show_alert=True)
+    text, kb = _build_hourly_rate_menu(worker, source)
+    await callback_query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await callback_query.answer("Soatlik narx o'chirildi.")
