@@ -590,22 +590,22 @@ def schedule_jobs():
     # Tezkor to'lov eslatmasi (Dushanba-Shanba, soat 08:00 da)
     scheduler.add_job(
         send_unpaid_workers_reminder,
-        trigger=CronTrigger(hour=8, minute=0, day_of_week='mon-sat'),
+        trigger=CronTrigger(timezone=scheduler.timezone,hour=8, minute=0, day_of_week='mon-sat'),
     )
     # Ertalabki hisobot (Dushanba-Shanba, soat 08:30 da)
     scheduler.add_job(
         send_morning_briefings,
-        trigger=CronTrigger(hour=8, minute=30, day_of_week='mon-sat'),
+        trigger=CronTrigger(timezone=scheduler.timezone,hour=8, minute=30, day_of_week='mon-sat'),
     )
     # Kunlik baza backupi (har kuni soat 06:00, Toshkent)
     scheduler.add_job(
         send_daily_backup_job,
-        trigger=CronTrigger(hour=6, minute=0),
+        trigger=CronTrigger(timezone=scheduler.timezone,hour=6, minute=0),
     )
     # Kechki hisobot (Dushanba-Shanba, soat 19:30 da)
     scheduler.add_job(
         send_evening_briefings,
-        trigger=CronTrigger(hour=19, minute=30, day_of_week='mon-sat'),
+        trigger=CronTrigger(timezone=scheduler.timezone,hour=19, minute=30, day_of_week='mon-sat'),
     )
     
     scheduler.add_job(
@@ -613,12 +613,12 @@ def schedule_jobs():
         # Neon compute scale-to-zero bo'lishi uchun bu job kun-u tun DB'ni
         # uyg'otmasin. Hozirgi ish boshlanishi 08:00; kechikish/kelmaganlik
         # eslatmalari ish boshlanishidan keyingi bir necha soatda yetarli.
-        trigger=CronTrigger(hour="8-12", minute="*/10", day_of_week='mon-sat'),
+        trigger=CronTrigger(timezone=scheduler.timezone,hour="8-12", minute="*/10", day_of_week='mon-sat'),
     )
     
     scheduler.add_job(
         check_late_arrivals_job,
-        trigger=CronTrigger(hour=9, minute=30, day_of_week='mon-sat'),
+        trigger=CronTrigger(timezone=scheduler.timezone,hour=9, minute=30, day_of_week='mon-sat'),
     )
     
     logging.info("Shaxsiy hisobotlar muvaffaqiyatli rejalashtirildi.")

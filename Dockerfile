@@ -15,7 +15,7 @@ RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 #    PGDG (postgresql.org rasmiy apt) repozitoriyasidan v18 olamiz.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg ffmpeg && \
+        ca-certificates curl gnupg ffmpeg tzdata && \
     . /etc/os-release && \
     install -d /usr/share/postgresql-common/pgdg && \
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \

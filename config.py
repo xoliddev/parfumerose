@@ -9,9 +9,10 @@ from dotenv import load_dotenv
 
 # Bot faqat Toshkent vaqtida ishlaydi. Server (fly.io) UTC'da bo'lsa ham
 # date.today() / datetime.now() Toshkent sanasini qaytarsin — aks holda 00:00–05:00
-# oralig'idagi amallar kechagi kunga yozilardi. POSIX format tzdata talab qilmaydi
-# (O'zbekistonda yozgi vaqt yo'q, doim UTC+5).
-os.environ["TZ"] = "<+05>-5"
+# oralig'idagi amallar kechagi kunga yozilardi. "Continent/City" ko'rinishi shart:
+# APScheduler (tzlocal) "<+05>-5" kabi POSIX qiymatni qabul qilmaydi va bot yiqiladi.
+# Dockerfile tzdata'ni o'rnatadi.
+os.environ["TZ"] = "Asia/Tashkent"
 if hasattr(time, "tzset"):
     time.tzset()
 TASHKENT_TZ = datetime.timezone(datetime.timedelta(hours=5), "Asia/Tashkent")
