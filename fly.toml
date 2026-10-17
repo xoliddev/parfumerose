@@ -1,0 +1,36 @@
+app = "parfumerose-bot"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENV = "production"
+  PORT = "8080"
+  TZ = "Asia/Tashkent"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/"
+
+# Bot yiqilsa (masalan, tarmoq vaqtincha uzilsa) fly uni har doim qayta ishga
+# tushirsin. Standart "on-failure" 10 urinishdan keyin mashinani to'xtatib qo'yadi.
+[[restart]]
+  policy = "always"
+  processes = ["app"]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

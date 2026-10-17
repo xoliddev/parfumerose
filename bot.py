@@ -709,6 +709,27 @@ async def on_shutdown(dispatcher):
     logging.warning("Baza bilan ulanish yopildi.")
 
 
+def _wait_for_telegram_dns(host: str = "api.telegram.org", max_delay: int = 60) -> None:
+    """Telegram serveri DNS orqali topilguncha kutadi (cheksiz, ortib boruvchi pauza bilan).
+
+    aiogram ishga tushishda darhol getMe so'raydi; tarmoq/DNS vaqtincha ishlamasa
+    jarayon yiqiladi, fly.io 10 marta qayta urinib mashinani butunlay to'xtatib
+    qo'yadi (2026-10-16 da shunday bo'ldi). Shuning uchun avval tarmoqni kutamiz.
+    """
+    import socket
+    import time as _time
+
+    delay = 2
+    while True:
+        try:
+            socket.getaddrinfo(host, 443)
+            return
+        except OSError as exc:
+            logging.warning("Telegram (%s) hali topilmadi: %s — %s s kutamiz.", host, exc, delay)
+            _time.sleep(delay)
+            delay = min(delay * 2, max_delay)
+
+
 if __name__ == "__main__":
     from aiogram import executor
 
@@ -716,6 +737,8 @@ if __name__ == "__main__":
     if not BOT_TOKEN:
         print("❌ FATAL: BOT_TOKEN topilmadi! Iltimos .env faylni yoki fly.io secrets'ni tekshiring.")
         exit(1)
+
+    _wait_for_telegram_dns()
 
     # MUHIM: skip_updates=False (eski default emas) — agar bot restart bo'lsa,
     # foydalanuvchining /start yoki boshqa xabarlari tashlab yuborilmaydi va
