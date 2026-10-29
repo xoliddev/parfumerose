@@ -301,6 +301,15 @@ async def show_location_issue_prompt(chat_id: int, menu_message_id: int | None, 
 # =============================  /start  ==========================
 @dp.message_handler(commands=['start'], state="*")
 async def universal_start(message: types.Message, state: FSMContext):
+    # Guruhda /start bosilsa shaxsiy menyuni U YERDA ochmaymiz: menyuda xodimning
+    # ismi, holati va «Maoshim» tugmasi bor (guruhga chiqishi kerak emas), ustiga
+    # «Ishga keldim» lokatsiya so'raydi — Telegram buni guruhda taqiqlaydi.
+    # Bot guruhga faqat bildirishnoma yozadi, menyu shaxsiy chatda ochiladi.
+    if message.chat.type != "private":
+        return await message.reply(
+            "Men bilan shaxsiy chatda ishlang: botni oching va /start bosing."
+        )
+
     try:
         await state.finish()
     except Exception:
@@ -549,6 +558,17 @@ async def _build_worker_salary_text(user_id: int) -> str:
 async def employee_menu_callback(callback_query: types.CallbackQuery, state: FSMContext):
     if callback_query.from_user.id in ADMINS:
         return await callback_query.answer()
+
+    # Xodim menyusi — shaxsiy menyu, va "keldim/ketdim" lokatsiya so'raydi.
+    # Telegram request_location tugmasini guruhga yubortirmaydi
+    # (BadRequest: Location can be requested in private chats only) — bu handlerni
+    # yiqitadi. Shuning uchun guruhda menyuni umuman ochmaymiz.
+    if callback_query.message.chat.type != "private":
+        return await callback_query.answer(
+            "Bu menyu faqat botning shaxsiy chatida ishlaydi.\n"
+            "Botni oching va /start bosing.",
+            show_alert=True,
+        )
 
     dashboard = await get_employee_dashboard(callback_query.from_user.id)
     if not dashboard:
@@ -981,6 +1001,9 @@ async def loc_handler(message: types.Message, state: FSMContext):
 @dp.message_handler(state=UserAttendance.waiting_for_location,
                     content_types=[types.ContentType.ANY])
 async def only_loc(message: types.Message):
+    # request_location tugmasi faqat shaxsiy chatda yuboriladi (yuqoridagi izohga qarang).
+    if message.chat.type != "private":
+        return
     await message.answer(
         f"Lokatsiya yuboring: pastdagi «{SEND_LOCATION_BUTTON_TEXT}» tugmasini bosing "
         "(yoki 📎 → Location → hozirgi joylashuv).",

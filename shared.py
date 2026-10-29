@@ -1,10 +1,12 @@
 # shared.py
 import asyncio
 import logging
+import time
 from math import ceil
 from typing import List, Tuple, Optional, Dict, Any
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.exceptions import BotBlocked, ChatNotFound, UserDeactivated
 
 from config import SUPERADMINS
 from loader import bot
@@ -14,6 +16,45 @@ pending_requests = {}
 admin_action_messages: Dict[str, List[Tuple[int, int]]] = {}
 admin_action_results: Dict[str, Dict[str, Any]] = {}
 admin_action_locks: Dict[str, asyncio.Lock] = {}
+
+
+# Adminga xabar yetmasligining eng ko'p uchraydigan sababi — u botga hech qachon
+# /start bosmagan ("Chat not found"). Bu holat o'z-o'zidan tuzalmaydi, shuning uchun
+# har bildirishnomada ERROR yozilsa log foydasiz takrorga to'lib ketadi (kuniga
+# yuzlab qator). Sababni tushunarli qilib, adminiga soatiga bir marta yozamiz.
+_PERMANENT_DELIVERY_ERRORS = (ChatNotFound, BotBlocked, UserDeactivated)
+_DELIVERY_WARN_EVERY_SEC = 3600.0
+_delivery_warned_at: Dict[int, float] = {}
+
+
+def _log_admin_delivery_failure(admin_id: int, exc: Exception) -> None:
+    """Yetkazib bo'lmagan xabarni sababiga qarab log qiladi (takrorini bosadi)."""
+    if not isinstance(exc, _PERMANENT_DELIVERY_ERRORS):
+        logging.error(f"Admin {admin_id} ga xabar yuborishda xatolik: {exc}")
+        return
+
+    now = time.monotonic()
+    if now - _delivery_warned_at.get(admin_id, 0.0) < _DELIVERY_WARN_EVERY_SEC:
+        return
+    _delivery_warned_at[admin_id] = now
+
+    if isinstance(exc, ChatNotFound):
+        reason = "u botga hali /start bosmagan"
+    elif isinstance(exc, BotBlocked):
+        reason = "u botni bloklagan"
+    else:
+        reason = "uning Telegram akkaunti o'chirilgan"
+    logging.warning(
+        "Admin %s ga bildirishnomalar YETMAYAPTI — %s. "
+        "Yechim: o'sha admin botni ochib /start bossin.",
+        admin_id,
+        reason,
+    )
+
+
+def _note_admin_delivery_success(admin_id: int) -> None:
+    """Admin /start bosgach, keyingi uzilishda yana ogohlantira olaylik."""
+    _delivery_warned_at.pop(admin_id, None)
 
 
 # ===== Yordamchi funksiya: Adminlarga xabar yuborish =====
@@ -59,8 +100,9 @@ async def notify_admins(
         try:
             msg = await bot.send_message(admin, final_text, reply_markup=reply_markup, parse_mode=parse_mode)
             sent_messages.append((msg.chat.id, msg.message_id))
+            _note_admin_delivery_success(admin)
         except Exception as e:
-            logging.error(f"Admin {admin} ga xabar yuborishda xatolik: {e}")
+            _log_admin_delivery_failure(admin, e)
     return sent_messages
 
 
@@ -76,8 +118,9 @@ async def notify_selected_admins(
         try:
             msg = await bot.send_message(admin, text, reply_markup=reply_markup, parse_mode=parse_mode)
             sent_messages.append((msg.chat.id, msg.message_id))
+            _note_admin_delivery_success(admin)
         except Exception as e:
-            logging.error(f"Admin {admin} ga xabar yuborishda xatolik: {e}")
+            _log_admin_delivery_failure(admin, e)
     return sent_messages
 
 
